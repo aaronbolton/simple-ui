@@ -46,6 +46,7 @@ class ChatUI {
         this.modelNameInput = document.getElementById('modelName');
         this.systemPromptInput = document.getElementById('systemPrompt');
         this.saveSettingsButton = document.getElementById('saveSettings');
+        this.resetSettingsButton = document.getElementById('resetSettings');
         this.clearChatButton = document.getElementById('clearChat');
     }
     
@@ -64,6 +65,7 @@ class ChatUI {
         this.settingsToggle.addEventListener('click', () => this.toggleSettings());
         this.themeToggle.addEventListener('click', () => this.toggleTheme());
         this.saveSettingsButton.addEventListener('click', () => this.saveSettings());
+        this.resetSettingsButton.addEventListener('click', () => this.resetSettings());
         this.clearChatButton.addEventListener('click', () => this.clearChat());
         
         // Close settings when clicking outside
@@ -187,6 +189,57 @@ class ChatUI {
         }, 1000);
     }
     
+    async resetSettings() {
+        if (!confirm('Reset all settings to defaults from .env file? This will clear your saved API key and other customizations.')) {
+            return;
+        }
+        
+        try {
+            // Get defaults from server .env configuration
+            const response = await fetch('/api/defaults');
+            if (response.ok) {
+                const defaults = await response.json();
+                
+                // Reset settings to defaults
+                this.settings.apiUrl = defaults.apiUrl;
+                this.settings.modelName = defaults.modelName;
+                this.settings.systemPrompt = defaults.systemPrompt;
+                
+                // Reset API key and server proxy settings
+                if (defaults.hasApiKey) {
+                    this.settings.useServerProxy = true;
+                    this.settings.apiKey = 'server-configured';
+                } else {
+                    this.settings.useServerProxy = false;
+                    this.settings.apiKey = '';
+                }
+                
+                // Don't reset theme preference - keep user's preference
+                // this.settings.darkMode = false;
+                
+                // Clear localStorage to remove any saved overrides
+                localStorage.removeItem('chatui_settings');
+                
+                // Update UI immediately
+                this.loadSettingsToUI();
+                this.validateSettings();
+                
+                this.updateStatus('Settings reset to defaults!', 'ready');
+                
+                setTimeout(() => {
+                    if (this.settingsPanel.classList.contains('open')) {
+                        this.toggleSettings();
+                    }
+                }, 1500);
+            } else {
+                throw new Error('Could not load defaults from server');
+            }
+        } catch (error) {
+            console.error('Error resetting settings:', error);
+            this.updateStatus('Error resetting settings', 'error');
+        }
+    }
+    
     initializeTheme() {
         this.applyTheme();
     }
@@ -246,6 +299,74 @@ class ChatUI {
         }
         
         this.updateStatus('Chat cleared', 'ready');
+    }
+    
+    async resendMessage(message) {
+        if (this.isLoading) {
+            this.updateStatus('Please wait for current message to complete', 'error');
+            return;
+        }
+        
+        if (!this.settings.useServerProxy && (!this.settings.apiKey || this.settings.apiKey === 'server-configured')) {
+            this.updateStatus('Please configure API key in settings', 'error');
+            return;
+        }
+        
+        // Add user message again
+        this.addMessage('user', message);
+        
+        // Show loading
+        this.isLoading = true;
+        this.sendButton.disabled = true;
+        this.addLoadingMessage();
+        this.updateStatus('Thinking...', 'loading');
+        
+        try {
+            const startTime = performance.now();
+            const response = await this.callAPI(message);
+            const endTime = performance.now();
+            const responseTime = Math.round(endTime - startTime);
+            
+            // Calculate tokens per second
+            const tokensPerSecond = response.usage?.completion_tokens 
+                ? Math.round((response.usage.completion_tokens / responseTime) * 1000) 
+                : 0;
+            
+            // Remove loading message
+            const loadingMessage = document.getElementById('loading-message');
+            if (loadingMessage) {
+                loadingMessage.remove();
+            }
+            
+            // Collect metrics
+            const metrics = await this.collectMetrics();
+            
+            this.addMessage('assistant', response.content, response.usage, metrics, tokensPerSecond);
+            this.updateUsageDisplay();
+            this.updateStatus('Ready', 'ready');
+            
+            // Show performance display
+            const performanceElement = document.getElementById('performanceDisplay');
+            if (performanceElement && tokensPerSecond > 0) {
+                performanceElement.textContent = `${tokensPerSecond} tokens/second | Response time: ${responseTime}ms`;
+                performanceElement.style.display = 'block';
+            }
+            
+        } catch (error) {
+            console.error('Error resending message:', error);
+            
+            // Remove loading message
+            const loadingMessage = document.getElementById('loading-message');
+            if (loadingMessage) {
+                loadingMessage.remove();
+            }
+            
+            this.addMessage('system', `Error: ${error.message}`);
+            this.updateStatus('Error occurred', 'error');
+        } finally {
+            this.isLoading = false;
+            this.sendButton.disabled = false;
+        }
     }
     
     async sendMessage() {
@@ -420,7 +541,7 @@ class ChatUI {
         if (role === 'user') {
             resendButtonHtml = `
                 <div class="message-actions">
-                    <button class="resend-button" onclick="chatUI.resendMessage('${this.escapeHtml(content).replace(/'/g, '\\\'')}')" title="Resend message">
+                    <button class="resend-button" data-message="${this.escapeHtml(content)}" title="Resend message">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
                             <path d="M21 3v5h-5"/>
@@ -438,6 +559,16 @@ class ChatUI {
             ${usageHtml}
             ${metricsHtml}
         `;
+        
+        // Add event listener for resend button if it's a user message
+        if (role === 'user') {
+            const resendButton = messageElement.querySelector('.resend-button');
+            if (resendButton) {
+                resendButton.addEventListener('click', () => {
+                    this.resendMessage(content);
+                });
+            }
+        }
         
         this.messagesContainer.appendChild(messageElement);
         this.scrollToBottom();

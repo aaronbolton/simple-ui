@@ -25,6 +25,16 @@ app.get('/api/config', (req, res) => {
     });
 });
 
+// API endpoint to get default configuration for reset functionality
+app.get('/api/defaults', (req, res) => {
+    res.json({
+        apiUrl: process.env.OPENAI_API_URL || 'https://api.openai.com/v1',
+        modelName: process.env.MODEL_NAME || 'gpt-3.5-turbo',
+        systemPrompt: 'You are a helpful assistant.',
+        hasApiKey: !!process.env.OPENAI_API_KEY
+    });
+});
+
 // Proxy endpoint for API calls (optional - for better security)
 app.post('/api/chat', async (req, res) => {
     try {

@@ -1,0 +1,32 @@
+services:
+  simple-ui:
+    build: .
+    container_name: simple-chat-ui
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+    env_file:
+      - .env
+    volumes:
+      # Optional: Mount .env file if you prefer file-based config
+      # - ./.env:/app/.env:ro
+      # Optional: Mount logs directory
+      - ./logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - chat-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  chat-network:
+    driver: bridge
+
+volumes:
+  logs:
+    driver: local
