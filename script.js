@@ -1,3 +1,5 @@
+console.log('script.js loaded successfully');
+
 class ChatUI {
     constructor() {
         this.messages = [];
@@ -23,11 +25,16 @@ class ChatUI {
         };
         
         this.initializeElements();
-        this.loadSettings(); // Keep as non-blocking
-        this.bindEvents();
+        this.bindEvents(); // Bind events immediately
         this.autoResizeTextarea();
+        this.init(); // Call async init method for settings loading
+    }
+    
+    async init() {
+        await this.loadSettings(); // Await settings loading
         this.updateUsageDisplay();
         this.initializeTheme();
+        this.validateSettings(); // Validate settings after loading
     }
     
     initializeElements() {
@@ -51,31 +58,60 @@ class ChatUI {
     }
     
     bindEvents() {
-        // Main chat events
-        this.sendButton.addEventListener('click', () => this.sendMessage());
-        this.messageInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                this.sendMessage();
-            }
+        console.log('Binding events...');
+        console.log('Elements found:', {
+            sendButton: !!this.sendButton,
+            messageInput: !!this.messageInput,
+            settingsToggle: !!this.settingsToggle,
+            themeToggle: !!this.themeToggle
         });
-        this.messageInput.addEventListener('input', () => this.updateCharCount());
+        
+        // Main chat events
+        if (this.sendButton) {
+            this.sendButton.addEventListener('click', () => {
+                console.log('Send button clicked');
+                this.sendMessage();
+            });
+        }
+        
+        if (this.messageInput) {
+            this.messageInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    console.log('Enter key pressed');
+                    this.sendMessage();
+                }
+            });
+            this.messageInput.addEventListener('input', () => this.updateCharCount());
+        }
         
         // Settings events
-        this.settingsToggle.addEventListener('click', () => this.toggleSettings());
-        this.themeToggle.addEventListener('click', () => this.toggleTheme());
-        this.saveSettingsButton.addEventListener('click', () => this.saveSettings());
-        this.resetSettingsButton.addEventListener('click', () => this.resetSettings());
-        this.clearChatButton.addEventListener('click', () => this.clearChat());
+        if (this.settingsToggle) {
+            this.settingsToggle.addEventListener('click', () => this.toggleSettings());
+        }
+        if (this.themeToggle) {
+            this.themeToggle.addEventListener('click', () => this.toggleTheme());
+        }
+        if (this.saveSettingsButton) {
+            this.saveSettingsButton.addEventListener('click', () => this.saveSettings());
+        }
+        if (this.resetSettingsButton) {
+            this.resetSettingsButton.addEventListener('click', () => this.resetSettings());
+        }
+        if (this.clearChatButton) {
+            this.clearChatButton.addEventListener('click', () => this.clearChat());
+        }
         
         // Close settings when clicking outside
         document.addEventListener('click', (e) => {
-            if (!this.settingsPanel.contains(e.target) && 
-                !this.settingsToggle.contains(e.target) && 
+            if (this.settingsPanel && !this.settingsPanel.contains(e.target) && 
+                this.settingsToggle && !this.settingsToggle.contains(e.target) && 
                 this.settingsPanel.classList.contains('open')) {
                 this.toggleSettings();
             }
         });
+        
+        console.log('Events bound successfully');
     }
     
     autoResizeTextarea() {
@@ -318,49 +354,49 @@ class ChatUI {
         // Show loading
         this.isLoading = true;
         this.sendButton.disabled = true;
-        this.addLoadingMessage();
         this.updateStatus('Thinking...', 'loading');
         
+        // Add streaming message container
+        const streamingMessageId = this.addStreamingMessage();
+        
         try {
-            const startTime = performance.now();
-            const response = await this.callAPI(message);
-            const endTime = performance.now();
-            const responseTime = Math.round(endTime - startTime);
+            const startTime = Date.now();
+            let totalTokens = 0;
+            let usage = null;
             
-            // Calculate tokens per second
-            const tokensPerSecond = response.usage?.completion_tokens 
-                ? Math.round((response.usage.completion_tokens / responseTime) * 1000) 
-                : 0;
+            const response = await this.callAPIStreaming(message, (chunk, isComplete, responseUsage) => {
+                if (isComplete) {
+                    usage = responseUsage;
+                } else {
+                    this.updateStreamingMessage(streamingMessageId, chunk);
+                    totalTokens++;
+                }
+            });
             
-            // Remove loading message
-            const loadingMessage = document.getElementById('loading-message');
-            if (loadingMessage) {
-                loadingMessage.remove();
-            }
+            const endTime = Date.now();
+            const responseTime = (endTime - startTime) / 1000;
+            const tokensPerSecond = totalTokens > 0 ? Math.round(totalTokens / responseTime) : 0;
             
             // Collect metrics
             const metrics = await this.collectMetrics();
             
-            this.addMessage('assistant', response.content, response.usage, metrics, tokensPerSecond);
+            // Finalize the streaming message
+            this.finalizeStreamingMessage(streamingMessageId, usage, metrics, tokensPerSecond);
+            
             this.updateUsageDisplay();
             this.updateStatus('Ready', 'ready');
             
             // Show performance display
             const performanceElement = document.getElementById('performanceDisplay');
             if (performanceElement && tokensPerSecond > 0) {
-                performanceElement.textContent = `${tokensPerSecond} tokens/second | Response time: ${responseTime}ms`;
+                performanceElement.textContent = `${tokensPerSecond} tokens/second | Response time: ${Math.round(responseTime * 1000)}ms`;
                 performanceElement.style.display = 'block';
             }
             
         } catch (error) {
             console.error('Error resending message:', error);
             
-            // Remove loading message
-            const loadingMessage = document.getElementById('loading-message');
-            if (loadingMessage) {
-                loadingMessage.remove();
-            }
-            
+            this.removeStreamingMessage(streamingMessageId);
             this.addMessage('system', `Error: ${error.message}`);
             this.updateStatus('Error occurred', 'error');
         } finally {
@@ -370,13 +406,23 @@ class ChatUI {
     }
     
     async sendMessage() {
+        console.log('sendMessage called');
         const message = this.messageInput.value.trim();
-        if (!message || this.isLoading) return;
+        console.log('Message content:', message);
+        console.log('Is loading:', this.isLoading);
+        
+        if (!message || this.isLoading) {
+            console.log('Early return: no message or already loading');
+            return;
+        }
         
         if (!this.settings.useServerProxy && (!this.settings.apiKey || this.settings.apiKey === 'server-configured')) {
+            console.log('API key not configured');
             this.updateStatus('Please configure API key in settings', 'error');
             return;
         }
+        
+        console.log('Proceeding with message send...');
         
         // Add user message
         this.addMessage('user', message);
@@ -387,26 +433,34 @@ class ChatUI {
         // Show loading
         this.isLoading = true;
         this.sendButton.disabled = true;
-        this.addLoadingMessage();
         this.updateStatus('Thinking...', 'loading');
+        
+        // Add streaming message container
+        const streamingMessageId = this.addStreamingMessage();
         
         try {
             const startTime = Date.now();
-            const response = await this.callAPI(message);
-            const endTime = Date.now();
-            const responseTime = (endTime - startTime) / 1000; // Convert to seconds
+            let totalTokens = 0;
+            let usage = null;
             
-            this.removeLoadingMessage();
+            const response = await this.callAPIStreaming(message, (chunk, isComplete, responseUsage) => {
+                if (isComplete) {
+                    usage = responseUsage;
+                } else {
+                    this.updateStreamingMessage(streamingMessageId, chunk);
+                    totalTokens++;
+                }
+            });
+            
+            const endTime = Date.now();
+            const responseTime = (endTime - startTime) / 1000;
+            const tokensPerSecond = totalTokens > 0 ? Math.round(totalTokens / responseTime) : 0;
             
             // Collect metrics after API call
             const metrics = await this.collectMetrics();
             
-            // Calculate tokens per second for this response
-            const tokensPerSecond = response.usage?.completion_tokens 
-                ? Math.round(response.usage.completion_tokens / responseTime)
-                : 0;
-            
-            this.addMessage('assistant', response.content, response.usage, metrics, tokensPerSecond);
+            // Finalize the streaming message
+            this.finalizeStreamingMessage(streamingMessageId, usage, metrics, tokensPerSecond);
             
             // Update performance display in header
             if (metrics) {
@@ -414,16 +468,16 @@ class ChatUI {
             }
             
             // Update cumulative usage
-            if (response.usage) {
-                this.totalUsage.prompt_tokens += response.usage.prompt_tokens || 0;
-                this.totalUsage.completion_tokens += response.usage.completion_tokens || 0;
-                this.totalUsage.total_tokens += response.usage.total_tokens || 0;
+            if (usage) {
+                this.totalUsage.prompt_tokens += usage.prompt_tokens || 0;
+                this.totalUsage.completion_tokens += usage.completion_tokens || 0;
+                this.totalUsage.total_tokens += usage.total_tokens || 0;
                 this.updateUsageDisplay();
             }
             
             this.updateStatus(this.settings.useServerProxy ? 'Ready (using server config)' : 'Ready', 'ready');
         } catch (error) {
-            this.removeLoadingMessage();
+            this.removeStreamingMessage(streamingMessageId);
             this.addMessage('system', `Error: ${error.message}`);
             this.updateStatus('Error occurred', 'error');
             console.error('API Error:', error);
@@ -498,6 +552,122 @@ class ChatUI {
         }
     }
     
+    async callAPIStreaming(userMessage, onChunk) {
+        const messages = [
+            { role: 'system', content: this.settings.systemPrompt },
+            ...this.messages.filter(m => m.role !== 'system').slice(-10), // Keep last 10 messages
+            { role: 'user', content: userMessage }
+        ];
+        
+        // Use server proxy if configured, otherwise direct API call
+        if (this.settings.useServerProxy) {
+            const response = await fetch('/api/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    messages: messages,
+                    model: this.settings.modelName,
+                    max_tokens: 1000,
+                    temperature: 0.7,
+                    stream: true
+                })
+            });
+            
+            if (!response.ok) {
+                const errorData = await response.text().catch(() => '');
+                throw new Error(errorData || `HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            return this.processStreamResponse(response, onChunk);
+        } else {
+            // Direct API call with streaming
+            const apiUrl = this.settings.apiUrl.endsWith('/') 
+                ? this.settings.apiUrl + 'chat/completions'
+                : this.settings.apiUrl + '/chat/completions';
+            
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.settings.apiKey}`
+                },
+                body: JSON.stringify({
+                    model: this.settings.modelName,
+                    messages: messages,
+                    max_tokens: 1000,
+                    temperature: 0.7,
+                    stream: true
+                })
+            });
+            
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error?.message || `HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            return this.processStreamResponse(response, onChunk);
+        }
+    }
+    
+    async processStreamResponse(response, onChunk) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let usage = null;
+        
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                
+                if (done) break;
+                
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop(); // Keep the incomplete line in buffer
+                
+                for (const line of lines) {
+                    const trimmedLine = line.trim();
+                    if (trimmedLine === '' || trimmedLine === 'data: [DONE]') continue;
+                    
+                    if (trimmedLine.startsWith('data: ')) {
+                        try {
+                            const jsonData = trimmedLine.slice(6); // Remove 'data: ' prefix
+                            const parsed = JSON.parse(jsonData);
+                            
+                            if (parsed.choices && parsed.choices[0]) {
+                                const choice = parsed.choices[0];
+                                if (choice.delta && choice.delta.content) {
+                                    onChunk(choice.delta.content, false);
+                                }
+                                
+                                // Check if this is the final chunk with usage info
+                                if (choice.finish_reason) {
+                                    usage = parsed.usage;
+                                }
+                            }
+                            
+                            // Some APIs send usage in a separate event
+                            if (parsed.usage) {
+                                usage = parsed.usage;
+                            }
+                        } catch (e) {
+                            console.warn('Failed to parse streaming chunk:', trimmedLine);
+                        }
+                    }
+                }
+            }
+            
+            // Call onChunk one final time to indicate completion
+            onChunk('', true, usage);
+            
+            return { usage };
+        } catch (error) {
+            throw new Error(`Streaming error: ${error.message}`);
+        }
+    }
+    
     addMessage(role, content, usage = null, metrics = null, tokensPerSecond = 0) {
         const message = { role, content, timestamp: new Date(), usage, metrics, tokensPerSecond };
         this.messages.push(message);
@@ -518,22 +688,47 @@ class ChatUI {
         }
         
         let metricsHtml = '';
-        if (metrics && role === 'assistant') {
-            metricsHtml = `
-                <div class="metrics-stats">
-                    <small>
-                        Performance: ${metrics.timePerOutputToken}ms/token | Cache: ${metrics.cacheUsage}% | Queue: ${metrics.requestsWaiting}
-                    </small>
-                </div>
-            `;
-        }
+        // Metrics display removed
         
-        // Render markdown for assistant messages, escape HTML for user messages
-        let messageContent;
+        // Render content based on role
+        let messageContentHtml = '';
         if (role === 'assistant') {
-            messageContent = this.renderMarkdown(content);
+            // Parse and separate think content from response for assistant messages
+            const parsed = this.parseThinkAndResponse(content);
+            
+            // Create think boxes HTML
+            let thinkBoxesHtml = '';
+            if (parsed.thinkContents.length > 0) {
+                parsed.thinkContents.forEach((thinkContent, index) => {
+                    const thinkId = `msg-${Date.now()}-think-${index}`;
+                    thinkBoxesHtml += `
+                        <div class="think-box">
+                            <div class="think-header" onclick="toggleThinkBox('${thinkId}')">
+                                <div class="think-label">
+                                    <svg class="think-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M9 18l6-6-6-6"/>
+                                    </svg>
+                                    💭 Thinking...
+                                </div>
+                            </div>
+                            <div class="think-content expanded" id="${thinkId}">
+                                <div class="think-content-inner">${this.escapeHtml(thinkContent).replace(/\n/g, '<br>')}</div>
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+            
+            // Render the response content as markdown
+            const renderedResponse = this.renderMarkdown(parsed.response);
+            
+            messageContentHtml = `
+                ${thinkBoxesHtml ? `<div class="message-think-boxes" style="display: block;">${thinkBoxesHtml}</div>` : ''}
+                <div class="message-content">${renderedResponse}</div>
+            `;
         } else {
-            messageContent = this.escapeHtml(content);
+            // For user and system messages, escape HTML
+            messageContentHtml = `<div class="message-content">${this.escapeHtml(content)}</div>`;
         }
         
         // Add resend button for user messages
@@ -554,10 +749,9 @@ class ChatUI {
         }
         
         messageElement.innerHTML = `
-            <div class="message-content">${messageContent}</div>
+            ${messageContentHtml}
             ${resendButtonHtml}
             ${usageHtml}
-            ${metricsHtml}
         `;
         
         // Add event listener for resend button if it's a user message
@@ -574,51 +768,101 @@ class ChatUI {
         this.scrollToBottom();
     }
     
-    addLoadingMessage() {
-        const loadingElement = document.createElement('div');
-        loadingElement.className = 'message assistant loading';
-        loadingElement.id = 'loading-message';
-        loadingElement.innerHTML = `
+    addStreamingMessage() {
+        const messageId = 'streaming-' + Date.now();
+        const messageElement = document.createElement('div');
+        messageElement.className = 'message assistant streaming';
+        messageElement.id = messageId;
+        messageElement.innerHTML = `
+            <div class="message-think-boxes" id="${messageId}-think"></div>
             <div class="message-content">
-                <div class="typing-indicator">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                </div>
+                <span class="streaming-text"></span>
+                <span class="streaming-cursor">|</span>
             </div>
         `;
         
-        this.messagesContainer.appendChild(loadingElement);
+        this.messagesContainer.appendChild(messageElement);
         this.scrollToBottom();
+        
+        return messageId;
     }
     
-    removeLoadingMessage() {
-        const loadingElement = document.getElementById('loading-message');
-        if (loadingElement) {
-            loadingElement.remove();
+    updateStreamingMessage(messageId, chunk) {
+        const messageElement = document.getElementById(messageId);
+        if (messageElement) {
+            const textElement = messageElement.querySelector('.streaming-text');
+            const thinkContainer = document.getElementById(`${messageId}-think`);
+            
+            if (textElement && thinkContainer) {
+                // Parse the chunk to separate think content from response content
+                const currentFullText = textElement.textContent + chunk;
+                const parsed = this.parseThinkAndResponse(currentFullText);
+                
+                // Update think boxes
+                if (parsed.thinkContents.length > 0) {
+                    thinkContainer.innerHTML = '';
+                    parsed.thinkContents.forEach((thinkContent, index) => {
+                        const thinkId = `${messageId}-think-${index}`;
+                        const thinkBox = this.createThinkBox(thinkId, thinkContent);
+                        thinkContainer.appendChild(thinkBox);
+                    });
+                    thinkContainer.style.display = 'block';
+                } else {
+                    thinkContainer.style.display = 'none';
+                }
+                
+                // Update response content (without think tags)
+                textElement.textContent = parsed.response;
+                
+                this.scrollToBottom();
+            }
         }
     }
     
-    escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
-    
-    renderMarkdown(text) {
-        // Configure marked options for better security and formatting
-        const self = this;
-        marked.setOptions({
-            breaks: true,
-            gfm: true,
-            sanitize: false,
-            highlight: function(code, lang) {
-                // Basic syntax highlighting for code blocks
-                return `<code class="language-${lang || 'text'}">${self.escapeHtml(code)}</code>`;
-            }
+    parseThinkAndResponse(text) {
+        const thinkContents = [];
+        let response = text;
+        
+        // Find all complete think tag pairs
+        const thinkRegex = /<think>([\s\S]*?)<\/think>/gi;
+        let match;
+        
+        while ((match = thinkRegex.exec(text)) !== null) {
+            thinkContents.push(match[1].trim());
+        }
+        
+        // Remove all think tags from response
+        response = text.replace(thinkRegex, '').trim();
+        
+        console.log('parseThinkAndResponse:', {
+            originalText: text.substring(0, 100) + '...',
+            thinkContentsFound: thinkContents.length,
+            response: response.substring(0, 100) + '...'
         });
         
-        return marked.parse(text);
+        return {
+            thinkContents,
+            response
+        };
+    }
+    
+    createThinkBox(thinkId, content) {
+        const thinkBox = document.createElement('div');
+        thinkBox.className = 'think-box';
+        thinkBox.innerHTML = `
+            <div class="think-header" onclick="toggleThinkBox('${thinkId}')">
+                <div class="think-label">
+                    <svg class="think-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M9 18l6-6-6-6"/>
+                    </svg>
+                    💭 Thinking...
+                </div>
+            </div>
+            <div class="think-content expanded" id="${thinkId}">
+                <div class="think-content-inner">${this.escapeHtml(content).replace(/\n/g, '<br>')}</div>
+            </div>
+        `;
+        return thinkBox;
     }
     
     async collectMetrics() {
@@ -736,9 +980,150 @@ class ChatUI {
     scrollToBottom() {
         this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
     }
+    
+    finalizeStreamingMessage(messageId, usage, metrics, tokensPerSecond) {
+        const messageElement = document.getElementById(messageId);
+        if (messageElement) {
+            const textElement = messageElement.querySelector('.streaming-text');
+            const cursor = messageElement.querySelector('.streaming-cursor');
+            
+            if (textElement && cursor) {
+                // Remove streaming cursor
+                cursor.remove();
+                
+                // Get the final content and parse it
+                const fullContent = textElement.textContent;
+                const parsed = this.parseThinkAndResponse(fullContent);
+                
+                // Update the message element to match the final format
+                messageElement.className = 'message assistant';
+                messageElement.id = '';
+                
+                // Create final message content
+                let thinkBoxesHtml = '';
+                if (parsed.thinkContents.length > 0) {
+                    parsed.thinkContents.forEach((thinkContent, index) => {
+                        const thinkId = `msg-${Date.now()}-think-${index}`;
+                        thinkBoxesHtml += `
+                            <div class="think-box">
+                                <div class="think-header" onclick="toggleThinkBox('${thinkId}')">
+                                    <div class="think-label">
+                                        <svg class="think-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M9 18l6-6-6-6"/>
+                                        </svg>
+                                        💭 Thinking...
+                                    </div>
+                                </div>
+                                <div class="think-content expanded" id="${thinkId}">
+                                    <div class="think-content-inner">${this.escapeHtml(thinkContent).replace(/\n/g, '<br>')}</div>
+                                </div>
+                            </div>
+                        `;
+                    });
+                }
+                
+                // Render the response content as markdown
+                const renderedResponse = this.renderMarkdown(parsed.response);
+                
+                // Usage and metrics HTML
+                let usageHtml = '';
+                if (usage) {
+                    const tokensPerSecDisplay = tokensPerSecond > 0 ? ` | ${tokensPerSecond} tok/s` : '';
+                    usageHtml = `
+                        <div class="usage-stats">
+                            <small>
+                                Tokens: ${usage.completion_tokens || 0} completion / ${usage.prompt_tokens || 0} prompt / ${usage.total_tokens || 0} total${tokensPerSecDisplay}
+                            </small>
+                        </div>
+                    `;
+                }
+                
+                let metricsHtml = '';
+                // Metrics display removed
+                
+                messageElement.innerHTML = `
+                    ${thinkBoxesHtml ? `<div class="message-think-boxes" style="display: block;">${thinkBoxesHtml}</div>` : ''}
+                    <div class="message-content">${renderedResponse}</div>
+                    ${usageHtml}
+                `;
+                
+                // Add the message to our messages array
+                this.messages.push({
+                    role: 'assistant',
+                    content: fullContent,
+                    timestamp: new Date(),
+                    usage,
+                    metrics,
+                    tokensPerSecond
+                });
+            }
+        }
+    }
+    
+    removeStreamingMessage(messageId) {
+        const messageElement = document.getElementById(messageId);
+        if (messageElement) {
+            messageElement.remove();
+        }
+    }
+    
+    renderMarkdown(text) {
+        if (typeof marked !== 'undefined') {
+            return marked.parse(text);
+        } else {
+            // Fallback if marked is not available
+            return this.escapeHtml(text).replace(/\n/g, '<br>');
+        }
+    }
+    
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+    
+    // Test function to create a sample think container
+    testThinkContainer() {
+        console.log('Creating test think container...');
+        const testMessage = '<think>This is a test think content. Let me think about this problem step by step. First, I need to understand what the user is asking. Then I should consider the best approach.</think>This is the actual response that should be visible to the user.';
+        this.addMessage('assistant', testMessage);
+    }
 }
+
+// Global function to toggle think boxes
+function toggleThinkBox(thinkId) {
+    console.log('toggleThinkBox called with ID:', thinkId);
+    const thinkContent = document.getElementById(thinkId);
+    const thinkHeader = thinkContent ? thinkContent.previousElementSibling : null;
+    
+    if (!thinkContent || !thinkHeader) {
+        console.error('Think box elements not found:', { thinkContent: !!thinkContent, thinkHeader: !!thinkHeader });
+        return;
+    }
+    
+    console.log('Think content current classes:', thinkContent.className);
+    
+    if (thinkContent.classList.contains('expanded')) {
+        // Currently expanded, collapse it
+        thinkContent.classList.remove('expanded');
+        thinkContent.classList.add('collapsed');
+        thinkHeader.classList.add('collapsed');
+        console.log('Collapsed think box');
+    } else {
+        // Currently collapsed (or default expanded), expand it
+        thinkContent.classList.remove('collapsed');
+        thinkContent.classList.add('expanded');
+        thinkHeader.classList.remove('collapsed');
+        console.log('Expanded think box');
+    }
+}
+
+// Test function to manually trigger send
+console.log('script.js loaded successfully');
 
 // Initialize the chat UI when the page loads
 document.addEventListener('DOMContentLoaded', () => {
-    new ChatUI();
+    console.log('DOM Content Loaded');
+    window.chatUI = new ChatUI();
+    console.log('ChatUI instance created and assigned to window.chatUI');
 });

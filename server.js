@@ -38,7 +38,7 @@ app.get('/api/defaults', (req, res) => {
 // Proxy endpoint for API calls (optional - for better security)
 app.post('/api/chat', async (req, res) => {
     try {
-        const { messages, model, max_tokens, temperature } = req.body;
+        const { messages, model, max_tokens, temperature, stream = true } = req.body;
         
         if (!process.env.OPENAI_API_KEY) {
             return res.status(400).json({ error: { message: 'API key not configured' } });
@@ -57,17 +57,45 @@ app.post('/api/chat', async (req, res) => {
                 model: model || process.env.MODEL_NAME || 'gpt-3.5-turbo',
                 messages,
                 max_tokens: max_tokens || 1000,
-                temperature: temperature || 0.7
+                temperature: temperature || 0.7,
+                stream: stream
             })
         });
         
-        const data = await response.json();
-        
         if (!response.ok) {
-            return res.status(response.status).json(data);
+            const errorData = await response.json().catch(() => ({}));
+            return res.status(response.status).json(errorData);
         }
         
-        res.json(data);
+        if (stream) {
+            // Set headers for streaming response
+            res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+            res.setHeader('Transfer-Encoding', 'chunked');
+            res.setHeader('Cache-Control', 'no-cache');
+            res.setHeader('Connection', 'keep-alive');
+            
+            // Stream the response
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            
+            try {
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    
+                    const chunk = decoder.decode(value, { stream: true });
+                    res.write(chunk);
+                }
+                res.end();
+            } catch (streamError) {
+                console.error('Streaming error:', streamError);
+                res.end();
+            }
+        } else {
+            // Non-streaming response (fallback)
+            const data = await response.json();
+            res.json(data);
+        }
     } catch (error) {
         console.error('API Error:', error);
         res.status(500).json({ error: { message: 'Internal server error' } });
