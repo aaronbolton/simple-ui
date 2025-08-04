@@ -1,0 +1,24 @@
+{
+  "name": "simple-chat-ui",
+  "version": "1.0.0",
+  "description": "A simple chat web UI for OpenAI compatible services",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "chat",
+    "openai",
+    "ui",
+    "web"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "dotenv": "^16.3.1",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {}
+}
