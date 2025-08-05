@@ -986,6 +986,7 @@ class ChatUI {
         if (messageElement) {
             const textElement = messageElement.querySelector('.streaming-text');
             const cursor = messageElement.querySelector('.streaming-cursor');
+            const thinkContainer = messageElement.querySelector('.message-think-boxes');
             
             if (textElement && cursor) {
                 // Remove streaming cursor
@@ -999,53 +1000,19 @@ class ChatUI {
                 messageElement.className = 'message assistant';
                 messageElement.id = '';
                 
-                // Create final message content
-                let thinkBoxesHtml = '';
-                if (parsed.thinkContents.length > 0) {
-                    parsed.thinkContents.forEach((thinkContent, index) => {
-                        const thinkId = `msg-${Date.now()}-think-${index}`;
-                        thinkBoxesHtml += `
-                            <div class="think-box">
-                                <div class="think-header" onclick="toggleThinkBox('${thinkId}')">
-                                    <div class="think-label">
-                                        <svg class="think-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                            <path d="M9 18l6-6-6-6"/>
-                                        </svg>
-                                        💭 Thinking...
-                                    </div>
-                                </div>
-                                <div class="think-content expanded" id="${thinkId}">
-                                    <div class="think-content-inner">${this.escapeHtml(thinkContent).replace(/\n/g, '<br>')}</div>
-                                </div>
-                            </div>
-                        `;
-                    });
-                }
-                
                 // Render the response content as markdown
                 const renderedResponse = this.renderMarkdown(parsed.response);
                 
-                // Usage and metrics HTML
-                let usageHtml = '';
-                if (usage) {
-                    const tokensPerSecDisplay = tokensPerSecond > 0 ? ` | ${tokensPerSecond} tok/s` : '';
-                    usageHtml = `
-                        <div class="usage-stats">
-                            <small>
-                                Tokens: ${usage.completion_tokens || 0} completion / ${usage.prompt_tokens || 0} prompt / ${usage.total_tokens || 0} total${tokensPerSecDisplay}
-                            </small>
-                        </div>
-                    `;
+                // Update the message content (preserve existing think container)
+                const messageContentDiv = messageElement.querySelector('.message-content');
+                if (messageContentDiv) {
+                    messageContentDiv.innerHTML = renderedResponse;
                 }
                 
-                let metricsHtml = '';
-                // Metrics display removed
-                
-                messageElement.innerHTML = `
-                    ${thinkBoxesHtml ? `<div class="message-think-boxes" style="display: block;">${thinkBoxesHtml}</div>` : ''}
-                    <div class="message-content">${renderedResponse}</div>
-                    ${usageHtml}
-                `;
+                // Ensure think container is visible if it has content
+                if (thinkContainer && thinkContainer.children.length > 0) {
+                    thinkContainer.style.display = 'block';
+                }
                 
                 // Add the message to our messages array
                 this.messages.push({
