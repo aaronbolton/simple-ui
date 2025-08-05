@@ -52,7 +52,37 @@ Simple Chat UI is a lightweight, secure web-based chat interface designed to wor
 
 ### Using Docker
 
-#### Option 1: Docker Compose (Recommended)
+#### Option 1: Pre-built Image from GitHub Container Registry (Recommended)
+
+1. **Run directly from GitHub Container Registry**:
+   ```bash
+   docker run -d \
+     --name simple-chat-ui \
+     -p 3000:3000 \
+     -e OPENAI_API_URL=https://api.openai.com/v1 \
+     -e OPENAI_API_KEY=your-api-key-here \
+     -e MODEL_NAME=gpt-3.5-turbo \
+     ghcr.io/aaronbolton/simple-ui:latest
+   ```
+
+2. **Or create a docker-compose.yml**:
+   ```yaml
+   version: '3.8'
+   services:
+     simple-chat-ui:
+       image: ghcr.io/aaronbolton/simple-ui:latest
+       ports:
+         - "3000:3000"
+       environment:
+         - OPENAI_API_URL=https://api.openai.com/v1
+         - OPENAI_API_KEY=your-api-key-here
+         - MODEL_NAME=gpt-3.5-turbo
+       restart: unless-stopped
+   ```
+
+3. **Access the application** at `http://localhost:3000`
+
+#### Option 2: Docker Compose (Development)
 
 1. **Clone and configure**:
    ```bash
@@ -71,7 +101,7 @@ Simple Chat UI is a lightweight, secure web-based chat interface designed to wor
 
 3. **Access the application** at `http://localhost:3000`
 
-#### Option 2: Direct Docker Build
+#### Option 3: Direct Docker Build
 
 1. **Build the image**:
    ```bash
