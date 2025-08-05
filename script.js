@@ -4,21 +4,11 @@ class ChatUI {
     constructor() {
         this.messages = [];
         this.isLoading = false;
-        this.totalUsage = {
-            prompt_tokens: 0,
-            completion_tokens: 0,
-            total_tokens: 0
-        };
         this.metrics = {
             timePerOutputToken: 0,
             requestsRunning: 0,
             requestsWaiting: 0,
             cacheUsage: 0
-        };
-        this.previousMetrics = {
-            totalInputTokens: 0,
-            totalOutputTokens: 0,
-            totalTokens: 0
         };
         this.settings = {
             apiUrl: 'https://api.openai.com/v1',
@@ -51,22 +41,10 @@ class ChatUI {
     
     async init() {
         await this.loadSettings(); // Await settings loading
-        this.updateUsageDisplay();
         this.initializeTheme();
         this.validateSettings(); // Validate settings after loading
-        // Initialize performance display with null values
-        this.updatePerformanceDisplay(null, 0, null);
-        
-        // Initialize baseline metrics
-        const initialMetrics = await this.collectMetrics();
-        if (initialMetrics) {
-            this.previousMetrics = {
-                totalInputTokens: initialMetrics.totalInputTokens,
-                totalOutputTokens: initialMetrics.totalOutputTokens,
-                totalTokens: initialMetrics.totalTokens
-            };
-            console.log('📊 Initialized baseline metrics:', this.previousMetrics);
-        }
+        // Initialize performance display with only tok/s
+        this.updatePerformanceDisplay(null, 0);
     }
     
     initializeElements() {
@@ -371,11 +349,6 @@ class ChatUI {
     
     clearChat() {
         this.messages = [];
-        this.totalUsage = {
-            prompt_tokens: 0,
-            completion_tokens: 0,
-            total_tokens: 0
-        };
         this.messagesContainer.innerHTML = `
             <div class="message system">
                 <div class="message-content">
@@ -383,10 +356,9 @@ class ChatUI {
                 </div>
             </div>
         `;
-        this.updateUsageDisplay();
         
-        // Reset performance display to null values
-        this.updatePerformanceDisplay(null, 0, null);
+        // Reset performance display to show only tok/s
+        this.updatePerformanceDisplay(null, 0);
         
         this.updateStatus('Chat cleared', 'ready');
     }
@@ -416,23 +388,9 @@ class ChatUI {
         try {
             const startTime = Date.now();
             let totalTokens = 0;
-            let usage = null;
             
-            // Collect baseline metrics before the request
-            const baselineMetrics = await this.collectMetrics();
-            if (baselineMetrics) {
-                this.previousMetrics = {
-                    totalInputTokens: baselineMetrics.totalInputTokens,
-                    totalOutputTokens: baselineMetrics.totalOutputTokens,
-                    totalTokens: baselineMetrics.totalTokens
-                };
-            }
-            
-            const response = await this.callAPIStreaming(message, (chunk, isComplete, responseUsage) => {
-                if (isComplete) {
-                    this.debug('resendMessage - Stream complete, usage data:', responseUsage);
-                    usage = responseUsage;
-                } else {
+            const response = await this.callAPIStreaming(message, (chunk, isComplete) => {
+                if (!isComplete) {
                     this.updateStreamingMessage(streamingMessageId, chunk);
                     totalTokens++;
                 }
@@ -441,30 +399,14 @@ class ChatUI {
             const endTime = Date.now();
             const responseTime = (endTime - startTime) / 1000;
             
-            // Collect metrics
+            // Collect metrics for performance data only
             const metrics = await this.collectMetrics();
             
-            // If streaming response didn't provide usage, get it from metrics
-            if (!usage) {
-                console.log('⚠️ No usage from streaming response, calculating from metrics');
-                usage = await this.collectTokenUsageFromMetrics();
-            }
+            // Calculate tokens per second using chunk count
+            const tokensPerSecond = totalTokens > 0 ? Math.round(totalTokens / responseTime) : 0;
             
-            // Calculate tokens per second using actual completion tokens if available
-            const tokensPerSecond = (usage && usage.completion_tokens > 0) 
-                ? Math.round(usage.completion_tokens / responseTime) 
-                : (totalTokens > 0 ? Math.round(totalTokens / responseTime) : 0);
-            
-            // Finalize the streaming message (this will update the performance display)
-            this.finalizeStreamingMessage(streamingMessageId, usage, metrics, tokensPerSecond);
-            
-            // Update cumulative usage
-            if (usage) {
-                this.totalUsage.prompt_tokens += usage.prompt_tokens || 0;
-                this.totalUsage.completion_tokens += usage.completion_tokens || 0;
-                this.totalUsage.total_tokens += usage.total_tokens || 0;
-                this.updateUsageDisplay();
-            }
+            // Finalize the streaming message with only tok/s
+            this.finalizeStreamingMessage(streamingMessageId, metrics, tokensPerSecond);
             
             this.updateStatus('Ready', 'ready');
             
@@ -531,24 +473,9 @@ class ChatUI {
         try {
             const startTime = Date.now();
             let totalTokens = 0;
-            let usage = null;
             
-            // Collect baseline metrics before the request
-            const baselineMetrics = await this.collectMetrics();
-            if (baselineMetrics) {
-                this.previousMetrics = {
-                    totalInputTokens: baselineMetrics.totalInputTokens,
-                    totalOutputTokens: baselineMetrics.totalOutputTokens,
-                    totalTokens: baselineMetrics.totalTokens
-                };
-            }
-            
-            const response = await this.callAPIStreaming(message, (chunk, isComplete, responseUsage) => {
-                if (isComplete) {
-                    console.log('📥 sendMessage - Stream complete, usage data:', responseUsage);
-                    this.debug('sendMessage - Stream complete, usage data:', responseUsage);
-                    usage = responseUsage;
-                } else {
+            const response = await this.callAPIStreaming(message, (chunk, isComplete) => {
+                if (!isComplete) {
                     this.updateStreamingMessage(streamingMessageId, chunk);
                     totalTokens++;
                 }
@@ -557,30 +484,14 @@ class ChatUI {
             const endTime = Date.now();
             const responseTime = (endTime - startTime) / 1000;
             
-            // Collect metrics after API call
+            // Collect metrics for performance data only
             const metrics = await this.collectMetrics();
             
-            // If streaming response didn't provide usage, get it from metrics
-            if (!usage) {
-                console.log('⚠️ No usage from streaming response, calculating from metrics');
-                usage = await this.collectTokenUsageFromMetrics();
-            }
+            // Calculate tokens per second using chunk count
+            const tokensPerSecond = totalTokens > 0 ? Math.round(totalTokens / responseTime) : 0;
             
-            // Calculate tokens per second using actual completion tokens if available
-            const tokensPerSecond = (usage && usage.completion_tokens > 0) 
-                ? Math.round(usage.completion_tokens / responseTime) 
-                : (totalTokens > 0 ? Math.round(totalTokens / responseTime) : 0);
-            
-            // Finalize the streaming message (this will update the performance display)
-            this.finalizeStreamingMessage(streamingMessageId, usage, metrics, tokensPerSecond);
-            
-            // Update cumulative usage
-            if (usage) {
-                this.totalUsage.prompt_tokens += usage.prompt_tokens || 0;
-                this.totalUsage.completion_tokens += usage.completion_tokens || 0;
-                this.totalUsage.total_tokens += usage.total_tokens || 0;
-                this.updateUsageDisplay();
-            }
+            // Finalize the streaming message with only tok/s
+            this.finalizeStreamingMessage(streamingMessageId, metrics, tokensPerSecond);
             
             this.updateStatus(this.settings.useServerProxy ? 'Ready (using server config)' : 'Ready', 'ready');
         } catch (error) {
@@ -638,9 +549,8 @@ class ChatUI {
             
             const data = await response.json();
             const content = data.choices[0]?.message?.content || 'No response received';
-            const usage = data.usage;
             
-            return { content, usage };
+            return { content };
         } else {
             // Direct API call
             const apiUrl = this.settings.apiUrl.endsWith('/') 
@@ -668,9 +578,8 @@ class ChatUI {
             
             const data = await response.json();
             const content = data.choices[0]?.message?.content || 'No response received';
-            const usage = data.usage;
             
-            return { content, usage };
+            return { content };
         }
     }
     
@@ -754,7 +663,6 @@ class ChatUI {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
-        let usage = null;
         
         try {
             while (true) {
@@ -773,29 +681,13 @@ class ChatUI {
                     if (trimmedLine.startsWith('data: ')) {
                         try {
                             const jsonData = trimmedLine.slice(6); // Remove 'data: ' prefix
-                            console.log('📄 Raw streaming chunk:', jsonData);
                             const parsed = JSON.parse(jsonData);
-                            console.log('🔧 Parsed chunk:', parsed);
                             
                             if (parsed.choices && parsed.choices[0]) {
                                 const choice = parsed.choices[0];
                                 if (choice.delta && choice.delta.content) {
                                     onChunk(choice.delta.content, false);
                                 }
-                                
-                                // Check if this is the final chunk with usage info
-                                if (choice.finish_reason) {
-                                    usage = parsed.usage;
-                                    console.log('🔍 Found usage in finish_reason chunk:', usage);
-                                    this.debug('Found usage in finish_reason chunk:', usage);
-                                }
-                            }
-                            
-                            // Some APIs send usage in a separate event
-                            if (parsed.usage) {
-                                usage = parsed.usage;
-                                console.log('🔍 Found usage in separate event:', usage);
-                                this.debug('Found usage in separate event:', usage);
                             }
                         } catch (e) {
                             console.warn('Failed to parse streaming chunk:', trimmedLine);
@@ -805,28 +697,20 @@ class ChatUI {
             }
             
             // Call onChunk one final time to indicate completion
-            console.log('🚀 Calling final onChunk with usage:', usage);
-            this.debug('Calling final onChunk with usage:', usage);
-            onChunk('', true, usage);
+            onChunk('', true);
             
-            return { usage };
+            return {};
         } catch (error) {
             throw new Error(`Streaming error: ${error.message}`);
         }
     }
     
-    addMessage(role, content, usage = null, metrics = null, tokensPerSecond = 0) {
-        const message = { role, content, timestamp: new Date(), usage, metrics, tokensPerSecond };
+    addMessage(role, content, metrics = null, tokensPerSecond = 0) {
+        const message = { role, content, timestamp: new Date(), metrics, tokensPerSecond };
         this.messages.push(message);
         
         const messageElement = document.createElement('div');
         messageElement.className = `message ${role}`;
-        
-        let usageHtml = '';
-        // Token usage now displayed only in header via updatePerformanceDisplay()
-        
-        let metricsHtml = '';
-        // Metrics display removed
         
         // Render content based on role
         let messageContentHtml = '';
@@ -860,25 +744,20 @@ class ChatUI {
             // Render the response content as markdown
             const renderedResponse = this.renderMarkdown(parsed.response);
             
-            // Create token usage display for assistant messages - always show even with null values
-            let tokenUsageHtml = '';
-            const completionTokens = usage?.completion_tokens ?? 'null';
-            const promptTokens = usage?.prompt_tokens ?? 'null';
-            const totalTokens = usage?.total_tokens ?? 'null';
-            const speed = tokensPerSecond > 0 ? tokensPerSecond : 'null';
-            
-            const tokenInfo = `Tokens: ${completionTokens} completion / ${promptTokens} prompt / ${totalTokens} total`;
-            const speedInfo = `${speed} tok/s`;
-            tokenUsageHtml = `
-                <div class="message-token-usage">
-                    ${tokenInfo} | ${speedInfo}
-                </div>
-            `;
+            // Only show tok/s for assistant messages
+            let speedHtml = '';
+            if (tokensPerSecond > 0) {
+                speedHtml = `
+                    <div class="message-token-usage">
+                        ${tokensPerSecond} tok/s
+                    </div>
+                `;
+            }
             
             messageContentHtml = `
                 ${thinkBoxesHtml ? `<div class="message-think-boxes" style="display: block;">${thinkBoxesHtml}</div>` : ''}
                 <div class="message-content">${renderedResponse}</div>
-                ${tokenUsageHtml}
+                ${speedHtml}
             `;
         } else {
             // For user and system messages, escape HTML
@@ -1050,10 +929,7 @@ class ChatUI {
             timePerOutputToken: 0,
             requestsRunning: 0,
             requestsWaiting: 0,
-            cacheUsage: 0,
-            totalInputTokens: 0,
-            totalOutputTokens: 0,
-            totalTokens: 0
+            cacheUsage: 0
         };
         
         const lines = metricsText.split('\n');
@@ -1109,107 +985,17 @@ class ChatUI {
                     metrics.cacheUsage = Math.round(parseFloat(match[1]) * 100); // Convert to percentage
                 }
             }
-            
-            // Parse token usage metrics
-            else if (line.includes('vllm:prompt_tokens_total') && !line.includes('#')) {
-                const match = line.match(/vllm:prompt_tokens_total\{.*?\}\s+([\d.]+)/);
-                if (match) {
-                    metrics.totalInputTokens = parseInt(parseFloat(match[1]));
-                }
-            }
-            else if (line.includes('vllm:generation_tokens_total') && !line.includes('#')) {
-                const match = line.match(/vllm:generation_tokens_total\{.*?\}\s+([\d.]+)/);
-                if (match) {
-                    metrics.totalOutputTokens = parseInt(parseFloat(match[1]));
-                }
-            }
-            // Alternative token metric names (some deployments use different names)
-            else if (line.includes('vllm:request_prompt_tokens_total') && !line.includes('#') && metrics.totalInputTokens === 0) {
-                const match = line.match(/vllm:request_prompt_tokens_total\{.*?\}\s+([\d.]+)/);
-                if (match) {
-                    metrics.totalInputTokens = parseInt(parseFloat(match[1]));
-                }
-            }
-            else if (line.includes('vllm:request_generation_tokens_total') && !line.includes('#') && metrics.totalOutputTokens === 0) {
-                const match = line.match(/vllm:request_generation_tokens_total\{.*?\}\s+([\d.]+)/);
-                if (match) {
-                    metrics.totalOutputTokens = parseInt(parseFloat(match[1]));
-                }
-            }
         }
-        
-        // Calculate total tokens
-        metrics.totalTokens = metrics.totalInputTokens + metrics.totalOutputTokens;
-        
-        console.log('📈 Parsed metrics:', {
-            totalInputTokens: metrics.totalInputTokens,
-            totalOutputTokens: metrics.totalOutputTokens,
-            totalTokens: metrics.totalTokens
-        });
         
         return metrics;
     }
     
-    async collectTokenUsageFromMetrics() {
-        try {
-            const currentMetrics = await this.collectMetrics();
-            if (!currentMetrics) {
-                console.warn('Could not collect current metrics for token usage');
-                return null;
-            }
-            
-            // Calculate the difference since the last request
-            const tokenUsage = {
-                prompt_tokens: Math.max(0, currentMetrics.totalInputTokens - this.previousMetrics.totalInputTokens),
-                completion_tokens: Math.max(0, currentMetrics.totalOutputTokens - this.previousMetrics.totalOutputTokens),
-                total_tokens: Math.max(0, currentMetrics.totalTokens - this.previousMetrics.totalTokens)
-            };
-            
-            // Update previous metrics for next calculation
-            this.previousMetrics = {
-                totalInputTokens: currentMetrics.totalInputTokens,
-                totalOutputTokens: currentMetrics.totalOutputTokens,
-                totalTokens: currentMetrics.totalTokens
-            };
-            
-            console.log('🔢 Token usage calculated from metrics:', tokenUsage);
-            return tokenUsage;
-        } catch (error) {
-            console.warn('Error calculating token usage from metrics:', error);
-            return null;
-        }
-    }
-    
-    updateUsageDisplay() {
-        const usageElement = document.getElementById('totalUsage');
-        if (usageElement && this.totalUsage.total_tokens > 0) {
-            usageElement.textContent = `Total: ${this.totalUsage.total_tokens} tokens (${this.totalUsage.completion_tokens} completion + ${this.totalUsage.prompt_tokens} prompt)`;
-            usageElement.style.display = 'block';
-        } else if (usageElement) {
-            usageElement.style.display = 'none';
-        }
-    }
-    
-    updatePerformanceDisplay(metrics, tokensPerSecond = 0, usage = null) {
+    updatePerformanceDisplay(metrics, tokensPerSecond = 0) {
         const performanceElement = document.getElementById('performanceDisplay');
         if (performanceElement) {
-            // Always show performance data, even with null values
+            // Only show tok/s
             const speed = tokensPerSecond > 0 ? tokensPerSecond : 'null';
-            const tokensPerSecDisplay = `${speed} tok/s`;
-            
-            let tokenInfo = '';
-            if (usage) {
-                const completionTokens = usage.completion_tokens ?? 'null';
-                const promptTokens = usage.prompt_tokens ?? 'null';
-                const totalTokens = usage.total_tokens ?? 'null';
-                tokenInfo = `Tokens: ${completionTokens} completion / ${promptTokens} prompt / ${totalTokens} total`;
-            } else {
-                tokenInfo = `Tokens: null completion / null prompt / null total`;
-            }
-            
-            // Always combine and display token info and tokens per second
-            const finalText = `${tokenInfo} | ${tokensPerSecDisplay}`;
-            performanceElement.textContent = finalText;
+            performanceElement.textContent = `${speed} tok/s`;
             performanceElement.style.display = 'block';
         }
     }
@@ -1218,9 +1004,9 @@ class ChatUI {
         this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
     }
     
-    finalizeStreamingMessage(messageId, usage, metrics, tokensPerSecond) {
-        console.log('🎯 finalizeStreamingMessage called with usage:', usage, 'tokensPerSecond:', tokensPerSecond);
-        this.debug('finalizeStreamingMessage called with usage:', usage, 'tokensPerSecond:', tokensPerSecond);
+    finalizeStreamingMessage(messageId, metrics, tokensPerSecond) {
+        console.log('🎯 finalizeStreamingMessage called with tokensPerSecond:', tokensPerSecond);
+        this.debug('finalizeStreamingMessage called with tokensPerSecond:', tokensPerSecond);
         const messageElement = document.getElementById(messageId);
         if (messageElement) {
             const textElement = messageElement.querySelector('.streaming-text');
@@ -1248,18 +1034,13 @@ class ChatUI {
                     messageContentDiv.innerHTML = renderedResponse;
                 }
                 
-                // Add token usage display - always show even with null values
-                const completionTokens = usage?.completion_tokens ?? 'null';
-                const promptTokens = usage?.prompt_tokens ?? 'null';
-                const totalTokens = usage?.total_tokens ?? 'null';
-                const speed = tokensPerSecond > 0 ? tokensPerSecond : 'null';
-                
-                const tokenInfo = `Tokens: ${completionTokens} completion / ${promptTokens} prompt / ${totalTokens} total`;
-                const speedInfo = `${speed} tok/s`;
-                const tokenUsageDiv = document.createElement('div');
-                tokenUsageDiv.className = 'message-token-usage';
-                tokenUsageDiv.textContent = `${tokenInfo} | ${speedInfo}`;
-                messageElement.appendChild(tokenUsageDiv);
+                // Add tok/s display if available
+                if (tokensPerSecond > 0) {
+                    const speedDiv = document.createElement('div');
+                    speedDiv.className = 'message-token-usage';
+                    speedDiv.textContent = `${tokensPerSecond} tok/s`;
+                    messageElement.appendChild(speedDiv);
+                }
                 
                 // Ensure think container is visible if it has content
                 if (thinkContainer && thinkContainer.children.length > 0) {
@@ -1271,13 +1052,12 @@ class ChatUI {
                     role: 'assistant',
                     content: fullContent,
                     timestamp: new Date(),
-                    usage,
                     metrics,
                     tokensPerSecond
                 });
                 
-                // Update performance display - always show even with null values
-                this.updatePerformanceDisplay(metrics, tokensPerSecond, usage);
+                // Update performance display - only show tok/s
+                this.updatePerformanceDisplay(metrics, tokensPerSecond);
             }
         }
     }
