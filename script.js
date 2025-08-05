@@ -16,7 +16,7 @@ class ChatUI {
             modelName: 'gpt-3.5-turbo',
             systemPrompt: 'You are a helpful assistant.',
             useServerProxy: false,
-            darkMode: false // Default to light mode
+            darkMode: true // Default to light mode
         };
         
         // Rate limiting
