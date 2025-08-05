@@ -1,196 +1,341 @@
 # Simple Chat UI
 
-A clean, modern web interface for OpenAI compatible API services. This application provides a beautiful chat experience with configurable settings for different AI services.
+A secure, modern chat web interface for OpenAI compatible services with real-time streaming support.
 
-## ✨ Features
+## Overview
 
-- **Clean, Modern UI**: Beautiful gradient design with smooth animations
-- **OpenAI Compatible**: Works with OpenAI API and other compatible services
-- **Configurable**: Easy setup through environment variables or UI settings
-- **Responsive**: Works perfectly on desktop and mobile devices
-- **Real-time Chat**: Instant messaging with typing indicators
-- **Settings Panel**: Configure API endpoint, key, model, and system prompt
-- **Local Storage**: Saves your settings automatically
-- **Error Handling**: Graceful error messages and status indicators
+Simple Chat UI is a lightweight, secure web-based chat interface designed to work with OpenAI compatible API services. It features real-time streaming responses, a clean modern interface with dark/light mode support, and comprehensive security features. The application can run as a standalone web service or in a Docker container.
 
-## 🚀 Quick Start
+## Features
 
-### Option 1: Direct HTML (Client-side only)
+- 🚀 **Real-time Streaming**: Live token-by-token response streaming
+- 🔒 **Security First**: Content Security Policy, XSS protection, and secure headers
+- 🎨 **Modern UI**: Clean, responsive design with dark/light theme toggle
+- 💭 **Think Tags Support**: Collapsible reasoning sections in AI responses
+- 📊 **Performance Metrics**: Real-time tokens/sec display and API metrics
+- ⚙️ **Flexible Configuration**: Support for any OpenAI compatible API
+- 🐳 **Docker Ready**: Full containerization support
+- 📱 **Mobile Responsive**: Works seamlessly on all devices
 
-1. Clone the repository:
+## Quick Start
+
+### Using npm
+
+1. **Clone the repository**:
    ```bash
-   git clone <your-repo-url>
+   git clone https://github.com/aaronbolton/simple-ui.git
    cd simple-ui
    ```
 
-2. Open `index.html` in your browser
-3. Click the settings gear icon to configure your API settings
-4. Start chatting!
-
-### Option 2: Node.js Server (Recommended for production)
-
-1. Clone and install dependencies:
+2. **Install dependencies**:
    ```bash
-   git clone <your-repo-url>
-   cd simple-ui
    npm install
    ```
 
-2. Copy the environment configuration:
+3. **Configure your environment**:
    ```bash
    cp .env.example .env
+   # Edit .env with your API configuration
    ```
 
-3. Edit `.env` file with your settings:
-   ```env
-   OPENAI_API_URL=https://api.openai.com/v1
-   OPENAI_API_KEY=your-api-key-here
-   MODEL_NAME=gpt-3.5-turbo
-   PORT=3000
-   ```
-
-4. Start the server:
+4. **Start the server**:
    ```bash
    npm start
    ```
+   
+   For development with auto-reload:
+   ```bash
+   npm run dev
+   ```
 
-5. Open http://localhost:3000 in your browser
+5. **Open your browser** to `http://localhost:3000`
 
-## ⚙️ Configuration
+### Using Docker
+
+#### Option 1: Docker Compose (Recommended)
+
+1. **Clone and configure**:
+   ```bash
+   git clone https://github.com/aaronbolton/simple-ui.git
+   cd simple-ui
+   cp .env.example .env
+   # Edit .env with your configuration
+   ```
+
+2. **Start with Docker Compose**:
+   ```bash
+   npm run docker-run
+   # or directly:
+   docker-compose up -d
+   ```
+
+3. **Access the application** at `http://localhost:3000`
+
+#### Option 2: Direct Docker Build
+
+1. **Build the image**:
+   ```bash
+   npm run docker-build
+   # or directly:
+   docker build -t simple-chat-ui .
+   ```
+
+2. **Run the container**:
+   ```bash
+   docker run -d \
+     --name simple-chat-ui \
+     -p 3000:3000 \
+     --env-file .env \
+     simple-chat-ui
+   ```
+
+## Configuration
 
 ### Environment Variables
 
-- `OPENAI_API_URL`: The API endpoint URL (default: https://api.openai.com/v1)
-- `OPENAI_API_KEY`: Your API key
-- `MODEL_NAME`: The model to use (default: gpt-3.5-turbo)
-- `PORT`: Server port (default: 3000)
+Create a `.env` file in the root directory with the following configuration:
 
-### UI Settings
+```bash
+# OpenAI Compatible API Configuration
+OPENAI_API_URL=https://api.openai.com/v1
+OPENAI_API_KEY=your-api-key-here
+MODEL_NAME=gpt-3.5-turbo
 
-You can also configure settings directly in the web interface:
+# Server Configuration  
+PORT=3000
+```
 
-1. Click the settings gear icon (⚙️) on the right side
-2. Configure:
-   - **API URL**: Your OpenAI compatible endpoint
-   - **API Key**: Your API key
-   - **Model**: The model name to use
-   - **System Prompt**: Instructions for the AI assistant
-3. Click "Save Settings"
+### Configuration Options
 
-Settings are automatically saved to your browser's local storage.
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `OPENAI_API_URL` | API endpoint URL | `https://api.openai.com/v1` | Yes |
+| `OPENAI_API_KEY` | API authentication key | None | Yes* |
+| `MODEL_NAME` | Default model to use | `gpt-3.5-turbo` | No |
+| `PORT` | Server port | `3000` | No |
 
-## 🌐 Compatible Services
+*Note: API key can be configured server-side (recommended) or client-side through the UI.
 
-This chat UI works with any OpenAI compatible API, including:
+### Compatible APIs
 
-- OpenAI API
-- Azure OpenAI Service
-- Anthropic Claude (with compatible proxy)
-- Local LLM servers (Ollama, LocalAI, etc.)
-- Other OpenAI compatible services
+This application works with any OpenAI compatible API service, including:
 
-## 🎨 Features in Detail
+- **OpenAI** (GPT-3.5, GPT-4, etc.)
+- **Local LLMs** (via vLLM, Ollama, LM Studio, etc.)
+- **Azure OpenAI Service**
+- **Anthropic Claude** (via compatible proxies)
+- **Open source models** (Llama, Mistral, CodeLlama, etc.)
 
-### Modern UI Design
-- Beautiful gradient backgrounds
-- Smooth animations and transitions
-- Clean message bubbles with proper spacing
-- Responsive design for all screen sizes
+## Usage
 
-### Smart Input
-- Auto-resizing textarea
-- Character counter (4000 char limit)
-- Enter to send, Shift+Enter for new line
-- Visual feedback for all actions
+### Basic Chat
 
-### Status Indicators
-- Real-time status updates
-- Loading states with typing indicators
-- Error handling with clear messages
-- Success confirmations
+1. Open the application in your web browser
+2. Type your message in the input field
+3. Press Enter or click the send button
+4. Watch the AI response stream in real-time
 
-### Settings Management
-- Persistent settings storage
-- Secure API key handling
-- Easy configuration panel
-- One-click chat clearing
+### Advanced Features
 
-## 🔧 Development
+#### Settings Panel
+- Click the gear icon to access settings
+- Configure API URL, model, and system prompt
+- Save settings locally or reset to server defaults
 
-The project structure is simple and modular:
+#### Think Tags
+AI responses may include collapsible "thinking" sections:
+```
+💭 Thinking... (click to expand)
+```
+Click to view the AI's reasoning process.
+
+#### Theme Toggle
+- Click the sun/moon icon to switch between light and dark modes
+- Preference is saved locally
+
+#### Message Actions
+- Hover over user messages to see the resend button
+- Click to resend any previous message
+
+### API Usage Modes
+
+#### Server-Side Configuration (Recommended)
+- Configure API key in `.env` file
+- More secure as API key never leaves the server
+- Supports server-side metrics and monitoring
+
+#### Client-Side Configuration
+- Enter API key in the settings panel
+- Useful for personal use or testing
+- API key stored locally in browser
+
+## Architecture
+
+### Frontend
+- **Vanilla JavaScript** - No framework dependencies
+- **Marked.js** - Markdown rendering for AI responses
+- **CSS Custom Properties** - Theme system
+- **ES6 Modules** - Modern JavaScript features
+
+### Backend
+- **Node.js** with Express
+- **CORS** enabled for cross-origin requests
+- **Security middleware** with CSP headers
+- **Streaming API** support for real-time responses
+
+### Security Features
+- Content Security Policy (CSP)
+- XSS protection headers
+- Request size limits
+- Rate limiting
+- Input validation and sanitization
+- Secure cookie handling
+
+## Development
+
+### Prerequisites
+- Node.js 16+ and npm 8+
+- Modern web browser
+
+### Development Commands
+
+```bash
+# Install dependencies
+npm install
+
+# Start development server with auto-reload
+npm run dev
+
+# Start production server
+npm start
+
+# Run security audit
+npm run security-audit
+
+# Fix security issues
+npm run security-fix
+
+# Build Docker image
+npm run docker-build
+
+# Run with Docker Compose
+npm run docker-run
+```
+
+### Project Structure
 
 ```
 simple-ui/
-├── index.html          # Main HTML file
-├── styles.css          # All styling
-├── script.js           # Chat functionality
-├── server.js           # Optional Node.js server
-├── package.json        # Node.js dependencies
-├── .env.example        # Environment template
-└── README.md           # This file
+├── server.js           # Express server with API endpoints
+├── index.html          # Main HTML template
+├── script.js           # Frontend JavaScript application
+├── styles.css          # CSS with theme system
+├── package.json        # npm configuration
+├── Dockerfile          # Multi-stage Docker build
+├── docker-compose.yml  # Container orchestration
+├── .env.example        # Environment configuration template
+└── logs/              # Application logs (Docker)
 ```
 
-### Customization
+### API Endpoints
 
-You can easily customize the appearance by modifying `styles.css`:
+- `GET /` - Serve main application
+- `GET /api/config` - Get server configuration (without API key)
+- `GET /api/defaults` - Get default settings for reset
+- `POST /api/chat` - Proxy chat requests to configured API
+- `GET /api/metrics` - Get performance metrics (if available)
 
-- Change colors in the CSS custom properties
-- Modify the gradient backgrounds
-- Adjust spacing and typography
-- Update animations and transitions
+## Deployment
 
-## 📱 Mobile Support
+### Production Deployment
 
-The interface is fully responsive and provides an excellent experience on:
-- Desktop computers
-- Tablets
-- Mobile phones
-- Any screen size
+1. **Prepare environment**:
+   ```bash
+   cp .env.example .env
+   # Configure production values
+   ```
 
-## 🔒 Security Notes
+2. **Using Docker (Recommended)**:
+   ```bash
+   docker-compose up -d
+   ```
 
-- **Never commit API keys**: The `.env` file is ignored by git to prevent accidental exposure
-- **Use server proxy mode**: When deploying to production, configure API keys on the server side only
-- **HTTPS required**: Always use HTTPS in production to protect API communications
-- **Content Security Policy**: The server includes CSP headers to prevent XSS attacks
-- **Input validation**: All user inputs are validated and sanitized before processing
-- **Rate limiting**: Built-in client-side rate limiting prevents abuse
+3. **Direct Node.js**:
+   ```bash
+   npm ci --only=production
+   npm start
+   ```
 
-### Security Best Practices
+### Reverse Proxy Setup
 
-1. **Environment Variables**: Never hardcode API keys in your source code
-2. **Server Configuration**: Use environment variables for all sensitive configuration
-3. **HTTPS Only**: Deploy with valid SSL certificates
-4. **Regular Updates**: Keep dependencies updated to latest secure versions
+For production deployment, use a reverse proxy like Nginx:
 
-```bash
-# Check for security vulnerabilities
-npm audit
-
-# Fix automatically where possible
-npm audit fix
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;
+    
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
 ```
 
-## 🚀 Deployment
+## Troubleshooting
 
-### Static Hosting (Netlify, Vercel, GitHub Pages)
-Just upload the HTML, CSS, and JS files. Users will need to configure their API keys in the UI.
+### Common Issues
 
-### Node.js Hosting (Railway, Render, Heroku)
-1. Deploy the entire project
-2. Set environment variables in your hosting platform
-3. The server will handle API calls securely
+**Connection Errors**
+- Verify API URL is correct and accessible
+- Check API key is valid and has sufficient credits
+- Ensure network connectivity to API endpoint
 
-## 🤝 Contributing
+**Streaming Issues**
+- Some proxy/CDN services may buffer responses
+- Try disabling any caching layers
+- Check browser console for JavaScript errors
 
-Feel free to submit issues and pull requests. Some ideas for contributions:
+**Docker Issues**
+- Ensure .env file is properly configured
+- Check container logs: `docker logs simple-chat-ui`
+- Verify port 3000 is not in use
 
-- Additional themes and customization options
-- Support for more AI services
-- Enhanced message formatting (markdown, code highlighting)
-- File upload capabilities
-- Conversation history management
+### Logs and Debugging
 
-## 📄 License
+**Development Mode**:
+- Browser console shows detailed debug information
+- Server logs display API requests and responses
 
-MIT License - feel free to use this project however you'd like!
+**Production Mode**:
+- Check Docker logs: `docker-compose logs -f`
+- Monitor `/app/logs` directory in container
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature-name`
+3. Make your changes and test thoroughly
+4. Commit with clear messages: `git commit -m "Add feature"`
+5. Push to your fork: `git push origin feature-name`
+6. Submit a pull request
+
+## License
+
+MIT License - see LICENSE file for details.
+
+## Support
+
+- **Issues**: https://github.com/aaronbolton/simple-ui/issues
+- **Discussions**: https://github.com/aaronbolton/simple-ui/discussions
+
+---
+
+Built with ❤️ for the AI community 
