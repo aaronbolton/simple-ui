@@ -389,7 +389,7 @@ class ChatUI {
             // Show performance display
             const performanceElement = document.getElementById('performanceDisplay');
             if (performanceElement && tokensPerSecond > 0) {
-                performanceElement.textContent = `${tokensPerSecond} tokens/second | Response time: ${Math.round(responseTime * 1000)}ms`;
+                performanceElement.textContent = `${tokensPerSecond} tokens/second `;
                 performanceElement.style.display = 'block';
             }
             
@@ -972,7 +972,8 @@ class ChatUI {
         const performanceElement = document.getElementById('performanceDisplay');
         if (performanceElement && metrics) {
             const tokensPerSecDisplay = tokensPerSecond > 0 ? ` | ${tokensPerSecond} tok/s` : '';
-            performanceElement.textContent = `Last response: ${metrics.timePerOutputToken}ms/token | Cache: ${metrics.cacheUsage}% | Queue: ${metrics.requestsWaiting}${tokensPerSecDisplay}`;
+            // performanceElement.textContent = `Last response: ${metrics.timePerOutputToken}ms/token | Cache: ${metrics.cacheUsage}% | Queue: ${metrics.requestsWaiting}${tokensPerSecDisplay}`;
+            performanceElement.textContent = `Last response: ${tokensPerSecDisplay}`;
             performanceElement.style.display = 'block';
         }
     }
