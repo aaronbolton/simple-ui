@@ -149,10 +149,27 @@ The interface is fully responsive and provides an excellent experience on:
 
 ## 🔒 Security Notes
 
-- API keys are stored locally in browser storage (client-side) or environment variables (server-side)
-- When using the Node.js server, API keys are never exposed to the client
-- All API calls use HTTPS when properly configured
-- No data is stored on external servers
+- **Never commit API keys**: The `.env` file is ignored by git to prevent accidental exposure
+- **Use server proxy mode**: When deploying to production, configure API keys on the server side only
+- **HTTPS required**: Always use HTTPS in production to protect API communications
+- **Content Security Policy**: The server includes CSP headers to prevent XSS attacks
+- **Input validation**: All user inputs are validated and sanitized before processing
+- **Rate limiting**: Built-in client-side rate limiting prevents abuse
+
+### Security Best Practices
+
+1. **Environment Variables**: Never hardcode API keys in your source code
+2. **Server Configuration**: Use environment variables for all sensitive configuration
+3. **HTTPS Only**: Deploy with valid SSL certificates
+4. **Regular Updates**: Keep dependencies updated to latest secure versions
+
+```bash
+# Check for security vulnerabilities
+npm audit
+
+# Fix automatically where possible
+npm audit fix
+```
 
 ## 🚀 Deployment
 

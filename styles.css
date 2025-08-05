@@ -231,6 +231,19 @@ body {
     font-style: normal;
 }
 
+/* Message Token Usage */
+.message-token-usage {
+    margin-top: 0.5rem;
+    padding: 0.375rem 0.75rem;
+    background: var(--tertiary-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 3px;
+    font-size: 0.6875rem;
+    color: var(--text-muted);
+    font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+    transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
 /* Message Actions */
 .message-actions {
     margin-top: 0.5rem;
@@ -721,7 +734,6 @@ body {
 /* Think Box Styles */
 .message-think-boxes {
     margin-bottom: 0.75rem;
-    border: 1px dashed #ccc; /* Debug border to see if container is present */
     padding: 2px;
     border-radius: 4px;
 }

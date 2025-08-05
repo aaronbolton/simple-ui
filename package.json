@@ -1,17 +1,25 @@
 {
   "name": "simple-chat-ui",
-  "version": "1.0.0",
-  "description": "A simple chat web UI for OpenAI compatible services",
+  "version": "1.0.1",
+  "description": "A secure, modern chat web UI for OpenAI compatible services",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "security-audit": "npm audit",
+    "security-fix": "npm audit fix",
+    "docker-build": "docker build -t simple-chat-ui .",
+    "docker-run": "docker-compose up -d",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
     "chat",
     "openai",
     "ui",
-    "web"
+    "web",
+    "ai",
+    "secure",
+    "streaming"
   ],
   "author": "",
   "license": "MIT",
@@ -22,5 +30,17 @@
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
-  }
+  },
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/simple-ui.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-username/simple-ui/issues"
+  },
+  "homepage": "https://github.com/your-username/simple-ui#readme"
 }

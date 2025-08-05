@@ -15,6 +15,11 @@ class ChatUI {
             requestsWaiting: 0,
             cacheUsage: 0
         };
+        this.previousMetrics = {
+            totalInputTokens: 0,
+            totalOutputTokens: 0,
+            totalTokens: 0
+        };
         this.settings = {
             apiUrl: 'https://api.openai.com/v1',
             apiKey: '',
@@ -24,10 +29,24 @@ class ChatUI {
             darkMode: false // Default to light mode
         };
         
+        // Rate limiting
+        this.lastRequestTime = 0;
+        this.minRequestInterval = 1000; // 1 second minimum between requests
+        
+        // Debug mode flag
+        this.debugMode = true; // Temporarily enabled for debugging token usage
+        
         this.initializeElements();
         this.bindEvents(); // Bind events immediately
         this.autoResizeTextarea();
         this.init(); // Call async init method for settings loading
+    }
+    
+    // Debug logging helper
+    debug(...args) {
+        if (this.debugMode) {
+            console.log('[ChatUI Debug]:', ...args);
+        }
     }
     
     async init() {
@@ -35,6 +54,19 @@ class ChatUI {
         this.updateUsageDisplay();
         this.initializeTheme();
         this.validateSettings(); // Validate settings after loading
+        // Initialize performance display with null values
+        this.updatePerformanceDisplay(null, 0, null);
+        
+        // Initialize baseline metrics
+        const initialMetrics = await this.collectMetrics();
+        if (initialMetrics) {
+            this.previousMetrics = {
+                totalInputTokens: initialMetrics.totalInputTokens,
+                totalOutputTokens: initialMetrics.totalOutputTokens,
+                totalTokens: initialMetrics.totalTokens
+            };
+            console.log('📊 Initialized baseline metrics:', this.previousMetrics);
+        }
     }
     
     initializeElements() {
@@ -58,8 +90,8 @@ class ChatUI {
     }
     
     bindEvents() {
-        console.log('Binding events...');
-        console.log('Elements found:', {
+        this.debug('Binding events...');
+        this.debug('Elements found:', {
             sendButton: !!this.sendButton,
             messageInput: !!this.messageInput,
             settingsToggle: !!this.settingsToggle,
@@ -69,7 +101,7 @@ class ChatUI {
         // Main chat events
         if (this.sendButton) {
             this.sendButton.addEventListener('click', () => {
-                console.log('Send button clicked');
+                this.debug('Send button clicked');
                 this.sendMessage();
             });
         }
@@ -78,7 +110,7 @@ class ChatUI {
             this.messageInput.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
-                    console.log('Enter key pressed');
+                    this.debug('Enter key pressed');
                     this.sendMessage();
                 }
             });
@@ -111,7 +143,7 @@ class ChatUI {
             }
         });
         
-        console.log('Events bound successfully');
+        this.debug('Events bound successfully');
     }
     
     autoResizeTextarea() {
@@ -201,9 +233,34 @@ class ChatUI {
     }
     
     saveSettings() {
-        this.settings.apiUrl = this.apiUrlInput.value.trim() || 'https://api.openai.com/v1';
-        this.settings.modelName = this.modelNameInput.value.trim() || 'gpt-3.5-turbo';
-        this.settings.systemPrompt = this.systemPromptInput.value.trim() || 'You are a helpful assistant.';
+        // Validate and sanitize inputs
+        const apiUrl = this.apiUrlInput.value.trim() || 'https://api.openai.com/v1';
+        const modelName = this.modelNameInput.value.trim() || 'gpt-3.5-turbo';
+        const systemPrompt = this.systemPromptInput.value.trim() || 'You are a helpful assistant.';
+        
+        // Validate API URL format
+        try {
+            new URL(apiUrl);
+        } catch (error) {
+            this.updateStatus('Invalid API URL format', 'error');
+            return;
+        }
+        
+        // Validate model name (basic check)
+        if (!/^[a-zA-Z0-9._/-]+$/.test(modelName)) {
+            this.updateStatus('Invalid model name format', 'error');
+            return;
+        }
+        
+        // Validate system prompt length
+        if (systemPrompt.length > 2000) {
+            this.updateStatus('System prompt too long (max 2000 characters)', 'error');
+            return;
+        }
+        
+        this.settings.apiUrl = apiUrl;
+        this.settings.modelName = modelName;
+        this.settings.systemPrompt = systemPrompt;
         
         // Only update API key if not using server proxy
         if (!this.settings.useServerProxy) {
@@ -328,11 +385,8 @@ class ChatUI {
         `;
         this.updateUsageDisplay();
         
-        // Clear performance display
-        const performanceElement = document.getElementById('performanceDisplay');
-        if (performanceElement) {
-            performanceElement.style.display = 'none';
-        }
+        // Reset performance display to null values
+        this.updatePerformanceDisplay(null, 0, null);
         
         this.updateStatus('Chat cleared', 'ready');
     }
@@ -364,8 +418,19 @@ class ChatUI {
             let totalTokens = 0;
             let usage = null;
             
+            // Collect baseline metrics before the request
+            const baselineMetrics = await this.collectMetrics();
+            if (baselineMetrics) {
+                this.previousMetrics = {
+                    totalInputTokens: baselineMetrics.totalInputTokens,
+                    totalOutputTokens: baselineMetrics.totalOutputTokens,
+                    totalTokens: baselineMetrics.totalTokens
+                };
+            }
+            
             const response = await this.callAPIStreaming(message, (chunk, isComplete, responseUsage) => {
                 if (isComplete) {
+                    this.debug('resendMessage - Stream complete, usage data:', responseUsage);
                     usage = responseUsage;
                 } else {
                     this.updateStreamingMessage(streamingMessageId, chunk);
@@ -375,23 +440,33 @@ class ChatUI {
             
             const endTime = Date.now();
             const responseTime = (endTime - startTime) / 1000;
-            const tokensPerSecond = totalTokens > 0 ? Math.round(totalTokens / responseTime) : 0;
             
             // Collect metrics
             const metrics = await this.collectMetrics();
             
-            // Finalize the streaming message
+            // If streaming response didn't provide usage, get it from metrics
+            if (!usage) {
+                console.log('⚠️ No usage from streaming response, calculating from metrics');
+                usage = await this.collectTokenUsageFromMetrics();
+            }
+            
+            // Calculate tokens per second using actual completion tokens if available
+            const tokensPerSecond = (usage && usage.completion_tokens > 0) 
+                ? Math.round(usage.completion_tokens / responseTime) 
+                : (totalTokens > 0 ? Math.round(totalTokens / responseTime) : 0);
+            
+            // Finalize the streaming message (this will update the performance display)
             this.finalizeStreamingMessage(streamingMessageId, usage, metrics, tokensPerSecond);
             
-            this.updateUsageDisplay();
-            this.updateStatus('Ready', 'ready');
-            
-            // Show performance display
-            const performanceElement = document.getElementById('performanceDisplay');
-            if (performanceElement && tokensPerSecond > 0) {
-                performanceElement.textContent = `${tokensPerSecond} tokens/second `;
-                performanceElement.style.display = 'block';
+            // Update cumulative usage
+            if (usage) {
+                this.totalUsage.prompt_tokens += usage.prompt_tokens || 0;
+                this.totalUsage.completion_tokens += usage.completion_tokens || 0;
+                this.totalUsage.total_tokens += usage.total_tokens || 0;
+                this.updateUsageDisplay();
             }
+            
+            this.updateStatus('Ready', 'ready');
             
         } catch (error) {
             console.error('Error resending message:', error);
@@ -406,23 +481,38 @@ class ChatUI {
     }
     
     async sendMessage() {
-        console.log('sendMessage called');
+        this.debug('sendMessage called');
         const message = this.messageInput.value.trim();
-        console.log('Message content:', message);
-        console.log('Is loading:', this.isLoading);
+        this.debug('Message content:', message);
+        this.debug('Is loading:', this.isLoading);
         
+        // Enhanced validation
         if (!message || this.isLoading) {
-            console.log('Early return: no message or already loading');
+            this.debug('Early return: no message or already loading');
+            return;
+        }
+        
+        // Rate limiting check
+        const now = Date.now();
+        if (now - this.lastRequestTime < this.minRequestInterval) {
+            this.updateStatus('Please wait before sending another message', 'error');
+            return;
+        }
+        this.lastRequestTime = now;
+        
+        // Validate message length
+        if (message.length > 4000) {
+            this.updateStatus('Message too long (max 4000 characters)', 'error');
             return;
         }
         
         if (!this.settings.useServerProxy && (!this.settings.apiKey || this.settings.apiKey === 'server-configured')) {
-            console.log('API key not configured');
+            this.debug('API key not configured');
             this.updateStatus('Please configure API key in settings', 'error');
             return;
         }
         
-        console.log('Proceeding with message send...');
+        this.debug('Proceeding with message send...');
         
         // Add user message
         this.addMessage('user', message);
@@ -443,8 +533,20 @@ class ChatUI {
             let totalTokens = 0;
             let usage = null;
             
+            // Collect baseline metrics before the request
+            const baselineMetrics = await this.collectMetrics();
+            if (baselineMetrics) {
+                this.previousMetrics = {
+                    totalInputTokens: baselineMetrics.totalInputTokens,
+                    totalOutputTokens: baselineMetrics.totalOutputTokens,
+                    totalTokens: baselineMetrics.totalTokens
+                };
+            }
+            
             const response = await this.callAPIStreaming(message, (chunk, isComplete, responseUsage) => {
                 if (isComplete) {
+                    console.log('📥 sendMessage - Stream complete, usage data:', responseUsage);
+                    this.debug('sendMessage - Stream complete, usage data:', responseUsage);
                     usage = responseUsage;
                 } else {
                     this.updateStreamingMessage(streamingMessageId, chunk);
@@ -454,18 +556,23 @@ class ChatUI {
             
             const endTime = Date.now();
             const responseTime = (endTime - startTime) / 1000;
-            const tokensPerSecond = totalTokens > 0 ? Math.round(totalTokens / responseTime) : 0;
             
             // Collect metrics after API call
             const metrics = await this.collectMetrics();
             
-            // Finalize the streaming message
-            this.finalizeStreamingMessage(streamingMessageId, usage, metrics, tokensPerSecond);
-            
-            // Update performance display in header
-            if (metrics) {
-                this.updatePerformanceDisplay(metrics, tokensPerSecond);
+            // If streaming response didn't provide usage, get it from metrics
+            if (!usage) {
+                console.log('⚠️ No usage from streaming response, calculating from metrics');
+                usage = await this.collectTokenUsageFromMetrics();
             }
+            
+            // Calculate tokens per second using actual completion tokens if available
+            const tokensPerSecond = (usage && usage.completion_tokens > 0) 
+                ? Math.round(usage.completion_tokens / responseTime) 
+                : (totalTokens > 0 ? Math.round(totalTokens / responseTime) : 0);
+            
+            // Finalize the streaming message (this will update the performance display)
+            this.finalizeStreamingMessage(streamingMessageId, usage, metrics, tokensPerSecond);
             
             // Update cumulative usage
             if (usage) {
@@ -477,10 +584,25 @@ class ChatUI {
             
             this.updateStatus(this.settings.useServerProxy ? 'Ready (using server config)' : 'Ready', 'ready');
         } catch (error) {
-            this.removeStreamingMessage(streamingMessageId);
-            this.addMessage('system', `Error: ${error.message}`);
-            this.updateStatus('Error occurred', 'error');
             console.error('API Error:', error);
+            this.removeStreamingMessage(streamingMessageId);
+            
+            // Better error message formatting
+            let errorMessage = 'Error: ';
+            if (error.message.includes('fetch')) {
+                errorMessage += 'Unable to connect to API server. Please check your connection.';
+            } else if (error.message.includes('401')) {
+                errorMessage += 'Invalid API key. Please check your settings.';
+            } else if (error.message.includes('429')) {
+                errorMessage += 'Rate limit exceeded. Please try again later.';
+            } else if (error.message.includes('500')) {
+                errorMessage += 'Server error. Please try again later.';
+            } else {
+                errorMessage += error.message || 'Unknown error occurred';
+            }
+            
+            this.addMessage('system', errorMessage);
+            this.updateStatus('Error occurred', 'error');
         } finally {
             this.isLoading = false;
             this.sendButton.disabled = false;
@@ -559,55 +681,72 @@ class ChatUI {
             { role: 'user', content: userMessage }
         ];
         
-        // Use server proxy if configured, otherwise direct API call
-        if (this.settings.useServerProxy) {
-            const response = await fetch('/api/chat', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    messages: messages,
-                    model: this.settings.modelName,
-                    max_tokens: 1000,
-                    temperature: 0.7,
-                    stream: true
-                })
-            });
-            
-            if (!response.ok) {
-                const errorData = await response.text().catch(() => '');
-                throw new Error(errorData || `HTTP ${response.status}: ${response.statusText}`);
+        // Create abort controller for timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => {
+            controller.abort();
+        }, 120000); // 2 minute timeout
+        
+        try {
+            // Use server proxy if configured, otherwise direct API call
+            if (this.settings.useServerProxy) {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        messages: messages,
+                        model: this.settings.modelName,
+                        max_tokens: 1000,
+                        temperature: 0.7,
+                        stream: true
+                    }),
+                    signal: controller.signal
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.text().catch(() => '');
+                    throw new Error(errorData || `HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                return this.processStreamResponse(response, onChunk);
+            } else {
+                // Direct API call with streaming
+                const apiUrl = this.settings.apiUrl.endsWith('/') 
+                    ? this.settings.apiUrl + 'chat/completions'
+                    : this.settings.apiUrl + '/chat/completions';
+                
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${this.settings.apiKey}`
+                    },
+                    body: JSON.stringify({
+                        model: this.settings.modelName,
+                        messages: messages,
+                        max_tokens: 1000,
+                        temperature: 0.7,
+                        stream: true
+                    }),
+                    signal: controller.signal
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.error?.message || `HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                return this.processStreamResponse(response, onChunk);
             }
-            
-            return this.processStreamResponse(response, onChunk);
-        } else {
-            // Direct API call with streaming
-            const apiUrl = this.settings.apiUrl.endsWith('/') 
-                ? this.settings.apiUrl + 'chat/completions'
-                : this.settings.apiUrl + '/chat/completions';
-            
-            const response = await fetch(apiUrl, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${this.settings.apiKey}`
-                },
-                body: JSON.stringify({
-                    model: this.settings.modelName,
-                    messages: messages,
-                    max_tokens: 1000,
-                    temperature: 0.7,
-                    stream: true
-                })
-            });
-            
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.error?.message || `HTTP ${response.status}: ${response.statusText}`);
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                throw new Error('Request timed out. Please try again.');
             }
-            
-            return this.processStreamResponse(response, onChunk);
+            throw error;
+        } finally {
+            clearTimeout(timeoutId);
         }
     }
     
@@ -634,7 +773,9 @@ class ChatUI {
                     if (trimmedLine.startsWith('data: ')) {
                         try {
                             const jsonData = trimmedLine.slice(6); // Remove 'data: ' prefix
+                            console.log('📄 Raw streaming chunk:', jsonData);
                             const parsed = JSON.parse(jsonData);
+                            console.log('🔧 Parsed chunk:', parsed);
                             
                             if (parsed.choices && parsed.choices[0]) {
                                 const choice = parsed.choices[0];
@@ -645,12 +786,16 @@ class ChatUI {
                                 // Check if this is the final chunk with usage info
                                 if (choice.finish_reason) {
                                     usage = parsed.usage;
+                                    console.log('🔍 Found usage in finish_reason chunk:', usage);
+                                    this.debug('Found usage in finish_reason chunk:', usage);
                                 }
                             }
                             
                             // Some APIs send usage in a separate event
                             if (parsed.usage) {
                                 usage = parsed.usage;
+                                console.log('🔍 Found usage in separate event:', usage);
+                                this.debug('Found usage in separate event:', usage);
                             }
                         } catch (e) {
                             console.warn('Failed to parse streaming chunk:', trimmedLine);
@@ -660,6 +805,8 @@ class ChatUI {
             }
             
             // Call onChunk one final time to indicate completion
+            console.log('🚀 Calling final onChunk with usage:', usage);
+            this.debug('Calling final onChunk with usage:', usage);
             onChunk('', true, usage);
             
             return { usage };
@@ -676,16 +823,7 @@ class ChatUI {
         messageElement.className = `message ${role}`;
         
         let usageHtml = '';
-        if (usage) {
-            const tokensPerSecDisplay = tokensPerSecond > 0 ? ` | ${tokensPerSecond} tok/s` : '';
-            usageHtml = `
-                <div class="usage-stats">
-                    <small>
-                        Tokens: ${usage.completion_tokens || 0} completion / ${usage.prompt_tokens || 0} prompt / ${usage.total_tokens || 0} total${tokensPerSecDisplay}
-                    </small>
-                </div>
-            `;
-        }
+        // Token usage now displayed only in header via updatePerformanceDisplay()
         
         let metricsHtml = '';
         // Metrics display removed
@@ -722,9 +860,25 @@ class ChatUI {
             // Render the response content as markdown
             const renderedResponse = this.renderMarkdown(parsed.response);
             
+            // Create token usage display for assistant messages - always show even with null values
+            let tokenUsageHtml = '';
+            const completionTokens = usage?.completion_tokens ?? 'null';
+            const promptTokens = usage?.prompt_tokens ?? 'null';
+            const totalTokens = usage?.total_tokens ?? 'null';
+            const speed = tokensPerSecond > 0 ? tokensPerSecond : 'null';
+            
+            const tokenInfo = `Tokens: ${completionTokens} completion / ${promptTokens} prompt / ${totalTokens} total`;
+            const speedInfo = `${speed} tok/s`;
+            tokenUsageHtml = `
+                <div class="message-token-usage">
+                    ${tokenInfo} | ${speedInfo}
+                </div>
+            `;
+            
             messageContentHtml = `
                 ${thinkBoxesHtml ? `<div class="message-think-boxes" style="display: block;">${thinkBoxesHtml}</div>` : ''}
                 <div class="message-content">${renderedResponse}</div>
+                ${tokenUsageHtml}
             `;
         } else {
             // For user and system messages, escape HTML
@@ -736,7 +890,7 @@ class ChatUI {
         if (role === 'user') {
             resendButtonHtml = `
                 <div class="message-actions">
-                    <button class="resend-button" data-message="${this.escapeHtml(content)}" title="Resend message">
+                    <button class="resend-button" data-message="${this.escapeHtmlAttribute(content)}" title="Resend message">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
                             <path d="M21 3v5h-5"/>
@@ -751,7 +905,6 @@ class ChatUI {
         messageElement.innerHTML = `
             ${messageContentHtml}
             ${resendButtonHtml}
-            ${usageHtml}
         `;
         
         // Add event listener for resend button if it's a user message
@@ -834,7 +987,7 @@ class ChatUI {
         // Remove all think tags from response
         response = text.replace(thinkRegex, '').trim();
         
-        console.log('parseThinkAndResponse:', {
+        this.debug('parseThinkAndResponse:', {
             originalText: text.substring(0, 100) + '...',
             thinkContentsFound: thinkContents.length,
             response: response.substring(0, 100) + '...'
@@ -897,7 +1050,10 @@ class ChatUI {
             timePerOutputToken: 0,
             requestsRunning: 0,
             requestsWaiting: 0,
-            cacheUsage: 0
+            cacheUsage: 0,
+            totalInputTokens: 0,
+            totalOutputTokens: 0,
+            totalTokens: 0
         };
         
         const lines = metricsText.split('\n');
@@ -953,9 +1109,75 @@ class ChatUI {
                     metrics.cacheUsage = Math.round(parseFloat(match[1]) * 100); // Convert to percentage
                 }
             }
+            
+            // Parse token usage metrics
+            else if (line.includes('vllm:prompt_tokens_total') && !line.includes('#')) {
+                const match = line.match(/vllm:prompt_tokens_total\{.*?\}\s+([\d.]+)/);
+                if (match) {
+                    metrics.totalInputTokens = parseInt(parseFloat(match[1]));
+                }
+            }
+            else if (line.includes('vllm:generation_tokens_total') && !line.includes('#')) {
+                const match = line.match(/vllm:generation_tokens_total\{.*?\}\s+([\d.]+)/);
+                if (match) {
+                    metrics.totalOutputTokens = parseInt(parseFloat(match[1]));
+                }
+            }
+            // Alternative token metric names (some deployments use different names)
+            else if (line.includes('vllm:request_prompt_tokens_total') && !line.includes('#') && metrics.totalInputTokens === 0) {
+                const match = line.match(/vllm:request_prompt_tokens_total\{.*?\}\s+([\d.]+)/);
+                if (match) {
+                    metrics.totalInputTokens = parseInt(parseFloat(match[1]));
+                }
+            }
+            else if (line.includes('vllm:request_generation_tokens_total') && !line.includes('#') && metrics.totalOutputTokens === 0) {
+                const match = line.match(/vllm:request_generation_tokens_total\{.*?\}\s+([\d.]+)/);
+                if (match) {
+                    metrics.totalOutputTokens = parseInt(parseFloat(match[1]));
+                }
+            }
         }
         
+        // Calculate total tokens
+        metrics.totalTokens = metrics.totalInputTokens + metrics.totalOutputTokens;
+        
+        console.log('📈 Parsed metrics:', {
+            totalInputTokens: metrics.totalInputTokens,
+            totalOutputTokens: metrics.totalOutputTokens,
+            totalTokens: metrics.totalTokens
+        });
+        
         return metrics;
+    }
+    
+    async collectTokenUsageFromMetrics() {
+        try {
+            const currentMetrics = await this.collectMetrics();
+            if (!currentMetrics) {
+                console.warn('Could not collect current metrics for token usage');
+                return null;
+            }
+            
+            // Calculate the difference since the last request
+            const tokenUsage = {
+                prompt_tokens: Math.max(0, currentMetrics.totalInputTokens - this.previousMetrics.totalInputTokens),
+                completion_tokens: Math.max(0, currentMetrics.totalOutputTokens - this.previousMetrics.totalOutputTokens),
+                total_tokens: Math.max(0, currentMetrics.totalTokens - this.previousMetrics.totalTokens)
+            };
+            
+            // Update previous metrics for next calculation
+            this.previousMetrics = {
+                totalInputTokens: currentMetrics.totalInputTokens,
+                totalOutputTokens: currentMetrics.totalOutputTokens,
+                totalTokens: currentMetrics.totalTokens
+            };
+            
+            console.log('🔢 Token usage calculated from metrics:', tokenUsage);
+            return tokenUsage;
+        } catch (error) {
+            console.warn('Error calculating token usage from metrics:', error);
+            return null;
+        }
     }
     
     updateUsageDisplay() {
@@ -968,12 +1190,26 @@ class ChatUI {
         }
     }
     
-    updatePerformanceDisplay(metrics, tokensPerSecond = 0) {
+    updatePerformanceDisplay(metrics, tokensPerSecond = 0, usage = null) {
         const performanceElement = document.getElementById('performanceDisplay');
-        if (performanceElement && metrics) {
-            const tokensPerSecDisplay = tokensPerSecond > 0 ? ` | ${tokensPerSecond} tok/s` : '';
-            // performanceElement.textContent = `Last response: ${metrics.timePerOutputToken}ms/token | Cache: ${metrics.cacheUsage}% | Queue: ${metrics.requestsWaiting}${tokensPerSecDisplay}`;
-            performanceElement.textContent = `Last response: ${tokensPerSecDisplay}`;
+        if (performanceElement) {
+            // Always show performance data, even with null values
+            const speed = tokensPerSecond > 0 ? tokensPerSecond : 'null';
+            const tokensPerSecDisplay = `${speed} tok/s`;
+            
+            let tokenInfo = '';
+            if (usage) {
+                const completionTokens = usage.completion_tokens ?? 'null';
+                const promptTokens = usage.prompt_tokens ?? 'null';
+                const totalTokens = usage.total_tokens ?? 'null';
+                tokenInfo = `Tokens: ${completionTokens} completion / ${promptTokens} prompt / ${totalTokens} total`;
+            } else {
+                tokenInfo = `Tokens: null completion / null prompt / null total`;
+            }
+            
+            // Always combine and display token info and tokens per second
+            const finalText = `${tokenInfo} | ${tokensPerSecDisplay}`;
+            performanceElement.textContent = finalText;
             performanceElement.style.display = 'block';
         }
     }
@@ -983,6 +1219,8 @@ class ChatUI {
     }
     
     finalizeStreamingMessage(messageId, usage, metrics, tokensPerSecond) {
+        console.log('🎯 finalizeStreamingMessage called with usage:', usage, 'tokensPerSecond:', tokensPerSecond);
+        this.debug('finalizeStreamingMessage called with usage:', usage, 'tokensPerSecond:', tokensPerSecond);
         const messageElement = document.getElementById(messageId);
         if (messageElement) {
             const textElement = messageElement.querySelector('.streaming-text');
@@ -1010,6 +1248,19 @@ class ChatUI {
                     messageContentDiv.innerHTML = renderedResponse;
                 }
                 
+                // Add token usage display - always show even with null values
+                const completionTokens = usage?.completion_tokens ?? 'null';
+                const promptTokens = usage?.prompt_tokens ?? 'null';
+                const totalTokens = usage?.total_tokens ?? 'null';
+                const speed = tokensPerSecond > 0 ? tokensPerSecond : 'null';
+                
+                const tokenInfo = `Tokens: ${completionTokens} completion / ${promptTokens} prompt / ${totalTokens} total`;
+                const speedInfo = `${speed} tok/s`;
+                const tokenUsageDiv = document.createElement('div');
+                tokenUsageDiv.className = 'message-token-usage';
+                tokenUsageDiv.textContent = `${tokenInfo} | ${speedInfo}`;
+                messageElement.appendChild(tokenUsageDiv);
+                
                 // Ensure think container is visible if it has content
                 if (thinkContainer && thinkContainer.children.length > 0) {
                     thinkContainer.style.display = 'block';
@@ -1024,6 +1275,9 @@ class ChatUI {
                     metrics,
                     tokensPerSecond
                 });
+                
+                // Update performance display - always show even with null values
+                this.updatePerformanceDisplay(metrics, tokensPerSecond, usage);
             }
         }
     }
@@ -1045,9 +1299,28 @@ class ChatUI {
     }
     
     escapeHtml(text) {
+        if (typeof text !== 'string') {
+            return String(text);
+        }
+        
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+    
+    // Additional security helper for attribute values
+    escapeHtmlAttribute(text) {
+        if (typeof text !== 'string') {
+            return String(text);
+        }
+        
+        return text
+            .replace(/&/g, '&amp;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#x27;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/\//g, '&#x2F;');
     }
     
     // Test function to create a sample think container
@@ -1060,7 +1333,6 @@ class ChatUI {
 
 // Global function to toggle think boxes
 function toggleThinkBox(thinkId) {
-    console.log('toggleThinkBox called with ID:', thinkId);
     const thinkContent = document.getElementById(thinkId);
     const thinkHeader = thinkContent ? thinkContent.previousElementSibling : null;
     
@@ -1069,20 +1341,16 @@ function toggleThinkBox(thinkId) {
         return;
     }
     
-    console.log('Think content current classes:', thinkContent.className);
-    
     if (thinkContent.classList.contains('expanded')) {
         // Currently expanded, collapse it
         thinkContent.classList.remove('expanded');
         thinkContent.classList.add('collapsed');
         thinkHeader.classList.add('collapsed');
-        console.log('Collapsed think box');
     } else {
         // Currently collapsed (or default expanded), expand it
         thinkContent.classList.remove('collapsed');
         thinkContent.classList.add('expanded');
         thinkHeader.classList.remove('collapsed');
-        console.log('Expanded think box');
     }
 }
 
@@ -1091,7 +1359,6 @@ console.log('script.js loaded successfully');
 
 // Initialize the chat UI when the page loads
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('DOM Content Loaded');
+    console.log('DOM Content Loaded - Initializing ChatUI');
     window.chatUI = new ChatUI();
-    console.log('ChatUI instance created and assigned to window.chatUI');
 });
